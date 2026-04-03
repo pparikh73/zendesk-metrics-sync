@@ -862,7 +862,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "select ticket_id\nfrom public.support_ticket_metrics_fact\nwhere ticket_id is not null\n  and ticket_created_at >= '{{ ($('Webhook - Backfill').first().json.body?.date_from || $('Webhook - Repair SLA Backfill').first().json.date_from || '') }}'::date\n  and ticket_created_at < ('{{ ($('Webhook - Backfill').first().json.body?.date_to || $('Webhook - Repair SLA Backfill').first().json.date_to || '') }}'::date + interval '1 day')\norder by ticket_id;",
+        "query": "select ticket_id\nfrom public.support_ticket_metrics_fact\nwhere ticket_id is not null\n  and ticket_created_at >= '{{ $json.date_from }}'::date\n  and ticket_created_at < ('{{ $json.date_to }}'::date + interval '1 day')\norder by ticket_id;\n",
         "options": {}
       },
       "id": "2c74a925-78b7-4757-82bc-24da331cf947",
@@ -870,7 +870,7 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
       "position": [
-        672,
+        880,
         2048
       ],
       "credentials": {
@@ -883,7 +883,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "with input_payload as (\n  select\n    '{{ ($json.ticket_rows_json || \"[]\").replace(/'/g, \"''\") }}'::jsonb as rows_json,\n    '{{ (($json.run_id || \"sla-backfill-run\") + \"\").replace(/'/g, \"''\") }}'::text as run_id,\n    {{ $json.batch_number || 0 }}::integer as batch_number,\n    {{ $('Code - Batch Ticket IDs').all().length || 0 }}::integer as total_batches,\n    {{ $json.batch_size || 0 }}::integer as batch_size\n),\nparsed_rows as (\n  select\n    (row->>'ticket_id')::bigint as ticket_id,\n    (row->>'sla_breached_flag')::boolean as sla_breached_flag\n  from input_payload,\n  jsonb_array_elements(rows_json) as row\n),\nupdated as (\n  update public.support_ticket_metrics_fact f\n  set\n    sla_breached_flag = p.sla_breached_flag,\n    synced_at = now()\n  from parsed_rows p\n  where f.ticket_id = p.ticket_id\n  returning f.ticket_id\n),\nprogress as (\n  insert into public.sync_progress (\n    run_id,\n    flow_name,\n    status,\n    current_batch,\n    total_batches,\n    batch_size,\n    updated_rows,\n    note,\n    updated_at\n  )\n  select\n    run_id,\n    'sla_backfill',\n    'running',\n    batch_number,\n    total_batches,\n    batch_size,\n    (select count(*) from updated),\n    ('Processed SLA batch ' || batch_number || ' of ' || total_batches),\n    now()\n  from input_payload\n  on conflict (run_id) do update set\n    flow_name = excluded.flow_name,\n    status = excluded.status,\n    current_batch = excluded.current_batch,\n    total_batches = excluded.total_batches,\n    batch_size = excluded.batch_size,\n    updated_rows = coalesce(public.sync_progress.updated_rows, 0) + excluded.updated_rows,\n    note = excluded.note,\n    updated_at = now()\n  returning id\n)\nselect\n  (select count(*) from parsed_rows) as parsed_rows,\n  (select count(*) from updated) as updated_rows;",
+        "query": "with input_payload as (\n  select\n    '{{ ($json.ticket_rows_json || \"[]\").replace(/'/g, \"''\") }}'::jsonb as rows_json,\n    '{{ (($json.run_id || \"sla-backfill-run\") + \"\").replace(/'/g, \"''\") }}'::text as run_id,\n    {{ $json.batch_number || 0 }}::integer as batch_number,\n    {{ $json.total_batches || 0 }}::integer as total_batches,\n    {{ $json.batch_size || 0 }}::integer as batch_size\n),\nparsed_rows as (\n  select\n    (row->>'ticket_id')::bigint as ticket_id,\n    (row->>'sla_breached_flag')::boolean as sla_breached_flag\n  from input_payload,\n  jsonb_array_elements(rows_json) as row\n),\nupdated as (\n  update public.support_ticket_metrics_fact f\n  set\n    sla_breached_flag = p.sla_breached_flag,\n    synced_at = now()\n  from parsed_rows p\n  where f.ticket_id = p.ticket_id\n  returning f.ticket_id\n),\nprogress as (\n  insert into public.sync_progress (\n    run_id, flow_name, status, current_batch, total_batches,\n    batch_size, updated_rows, note, updated_at\n  )\n  select\n    run_id, 'sla_backfill', 'running',\n    batch_number, total_batches, batch_size,\n    (select count(*) from updated),\n    ('Processed SLA batch ' || batch_number || ' of ' || total_batches),\n    now()\n  from input_payload\n  on conflict (run_id) do update set\n    flow_name = excluded.flow_name,\n    status = excluded.status,\n    current_batch = excluded.current_batch,\n    total_batches = excluded.total_batches,\n    batch_size = excluded.batch_size,\n    updated_rows = coalesce(public.sync_progress.updated_rows, 0) + excluded.updated_rows,\n    note = excluded.note,\n    updated_at = now()\n  returning id\n)\nselect\n  (select count(*) from parsed_rows) as parsed_rows,\n  (select count(*) from updated) as updated_rows;\n",
         "options": {}
       },
       "id": "282b1e4f-2bfb-47c7-8e08-5b87c87cbccb",
@@ -891,7 +891,7 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
       "position": [
-        1792,
+        2000,
         2112
       ],
       "credentials": {
@@ -903,12 +903,12 @@
     },
     {
       "parameters": {
-        "jsCode": "const BATCH_SIZE = 100;\n\nconst ids = $input.all()\n  .map(item => item.json.ticket_id)\n  .filter(id => id !== null && id !== undefined);\n\nconst runId = $('Webhook - Backfill').first().json.body?.run_id || `sla-backfill-${new Date().toISOString().replace(/[:.]/g, '-')}`;\n\n\nconst batches = [];\n\nfor (let i = 0; i < ids.length; i += BATCH_SIZE) {\n  const batchIds = ids.slice(i, i + BATCH_SIZE);\n  batches.push({\n    json: {\n      run_id: runId,\n      batch_number: Math.floor(i / BATCH_SIZE) + 1,\n      batch_size: batchIds.length,\n      ids_csv: batchIds.join(','),\n      ticket_ids: batchIds\n    }\n  });\n}\n\nreturn batches;"
+        "jsCode": "const BATCH_SIZE = 100;\n\nconst ids = $input.all()\n  .map(item => item.json.ticket_id)\n  .filter(id => id !== null && id !== undefined);\n\nconst runId = $('Code - Parse Backfill Params').first().json.run_id;\nconst totalBatches = Math.ceil(ids.length / BATCH_SIZE);\nconst batches = [];\n\nfor (let i = 0; i < ids.length; i += BATCH_SIZE) {\n  const batchIds = ids.slice(i, i + BATCH_SIZE);\n  batches.push({\n    json: {\n      run_id: runId,\n      batch_number: Math.floor(i / BATCH_SIZE) + 1,\n      total_batches: totalBatches,\n      batch_size: batchIds.length,\n      ids_csv: batchIds.join(',')\n    }\n  });\n}\n\nreturn batches;\n"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        928,
+        1136,
         2048
       ],
       "id": "051fe73e-2967-4639-a1fd-46154c1a2219",
@@ -923,7 +923,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1568,
+        1776,
         2112
       ]
     },
@@ -934,7 +934,7 @@
       "type": "n8n-nodes-base.splitInBatches",
       "typeVersion": 3,
       "position": [
-        1136,
+        1344,
         2048
       ],
       "id": "20d405f5-83ef-46aa-9f82-b2ffb0e1ab77",
@@ -952,7 +952,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
       "position": [
-        1360,
+        1568,
         2112
       ],
       "credentials": {
@@ -965,13 +965,13 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "with incoming as (\n  select\n    '{{ (($('Webhook - Backfill').first().json.body?.run_id || \"\") + \"\").replace(/'/g, \"''\") }}'::text as run_id,\n    {{ $('Code - Batch Ticket IDs').all().length || 0 }}::integer as total_batches\n),\nmark_complete as (\n  update public.sync_progress sp\n  set\n    status = 'completed',\n    current_batch = i.total_batches,\n    total_batches = i.total_batches,\n    note = 'SLA backfill completed',\n    updated_at = now()\n  from incoming i\n  where sp.run_id = i.run_id\n  returning sp.run_id, sp.updated_rows\n)\nselect\n  run_id,\n  updated_rows\nfrom mark_complete;\n",
+        "query": "with incoming as (\n  select\n    '{{ (($('Webhook - Backfill').first().json.body?.run_id || \"\") + \"\").replace(/'/g, \"''\") }}'::text as run_id,\n    {{ $json.total_batches || 0 }}::integer as total_batches\n),\nmark_complete as (\n  update public.sync_progress sp\n  set\n    status = 'completed',\n    current_batch = i.total_batches,\n    total_batches = i.total_batches,\n    note = 'SLA backfill completed',\n    updated_at = now()\n  from incoming i\n  where sp.run_id = i.run_id\n  returning sp.run_id, sp.updated_rows\n)\nselect run_id, updated_rows\nfrom mark_complete;\n",
         "options": {}
       },
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
       "position": [
-        2112,
+        2320,
         2032
       ],
       "id": "31771cec-efe0-4670-b304-f52f541ae3b7",
@@ -1031,11 +1031,24 @@
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
       "position": [
-        2384,
+        2592,
         2032
       ],
       "id": "a628e93f-80df-4c75-82f7-9edd257ede2b",
       "name": "Respond to Backfill Webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json.body || {};\n\nif (!body.date_from || !body.date_to) {\n  throw new Error('date_from and date_to are required');\n}\n\nreturn [{\n  json: {\n    run_id: body.run_id || `sla-backfill-${new Date().toISOString().replace(/[:.]/g, '-')}`,\n    date_from: body.date_from,\n    date_to: body.date_to\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        656,
+        2048
+      ],
+      "id": "82005b97-5fc3-4296-a767-981ab50eee20",
+      "name": "Code - Parse Backfill Params"
     }
   ],
   "pinData": {},
@@ -1572,7 +1585,7 @@
       "main": [
         [
           {
-            "node": "Postgres - Load SLA Ticket Batches",
+            "node": "Code - Parse Backfill Params",
             "type": "main",
             "index": 0
           }
@@ -1589,6 +1602,17 @@
           }
         ]
       ]
+    },
+    "Code - Parse Backfill Params": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Load SLA Ticket Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "active": true,
@@ -1597,7 +1621,7 @@
     "binaryMode": "separate",
     "availableInMCP": false
   },
-  "versionId": "26863f1c-7297-4c6a-85e7-10765c1f6323",
+  "versionId": "d1b7a0c9-f1f8-4026-bead-cc2e2dfa0a1c",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "52593113cc94089cd75ae3f96772feead566141362fb1a394622a12d4e4e1f80"
