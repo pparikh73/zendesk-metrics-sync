@@ -1,0 +1,889 @@
+{
+  "name": "BTA - Pull and Analyze Batch",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "bta-zendesk-filter-metadata",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -2864,
+        160
+      ],
+      "id": "0b7308ac-a921-4019-8b7c-c0f47eedca9c",
+      "name": "Webhook - Filter Metadata",
+      "webhookId": "76cdfd15-3427-4c30-afd1-480bb863f6fb"
+    },
+    {
+      "parameters": {
+        "url": "https://kipuhealth.zendesk.com/api/v2/ticket_forms.json",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "zendeskApi",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -2592,
+        160
+      ],
+      "id": "6e1d0c93-572b-4189-9425-d97675c404cd",
+      "name": "Zendesk - Get Ticket Forms",
+      "credentials": {
+        "zendeskApi": {
+          "id": "Nd6nYzUYdeDBS3Gj",
+          "name": "Equinox Zendesk Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://kipuhealth.zendesk.com/api/v2/ticket_fields.json",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "zendeskApi",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -2368,
+        160
+      ],
+      "id": "517120cd-42dc-4ef8-aa98-d26c953cffe7",
+      "name": "Zendesk - Get Ticket Fields",
+      "credentials": {
+        "zendeskApi": {
+          "id": "Nd6nYzUYdeDBS3Gj",
+          "name": "Equinox Zendesk Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const forms = $item(0).$node[\"Zendesk - Get Ticket Forms\"].json.ticket_forms || [];\n\nconst featureMap = {\n  \"DrFirst Order Form\": { field_id: 22937458172699, field_title: \"DrFirst Section/Feature\" },\n  \"EMR Default Form\": { field_id: 1900003693164, field_title: \"EMR Section/Feature\" },\n  \"Lab Support Form\": { field_id: 32729688213531, field_title: \"Labs Section/Feature\" },\n  \"Billing Form\": { field_id: 1260824167749, field_title: \"Billing Section/Feature\" },\n  \"CRM Form\": { field_id: 1900003692984, field_title: \"CRM Section/Feature\" },\n  \"Kipu RCM Support\": { field_id: 13443937881883, field_title: \"RCM Section/Feature\" }\n};\n\nconst activeForms = forms\n  .filter(f => f.active && f.name !== \"Zendesk Admin Test\")\n  .map(f => ({\n    id: f.id,\n    name: f.name\n  }));\n\nconst formFeatureMapping = {};\nfor (const form of activeForms) {\n  if (featureMap[form.name]) {\n    formFeatureMapping[form.name] = {\n      field_id: featureMap[form.name].field_id,\n      field_title: featureMap[form.name].field_title\n    };\n  }\n}\n\nreturn [{\n  json: {\n    source: \"zendesk\",\n    fetched_at: new Date().toISOString(),\n    ticket_forms: activeForms,\n    form_feature_mapping: formFeatureMapping\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2032,
+        160
+      ],
+      "id": "a6b5d6eb-b057-4117-bbf3-88d5fe8cab2c",
+      "name": "Build Metadata Response"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        -1760,
+        160
+      ],
+      "id": "12090c75-772f-405d-b470-4f4d545027d7",
+      "name": "Respond - Metadata"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "bta-zendesk-ticket-preview",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -2864,
+        416
+      ],
+      "id": "d1b80caf-d5a1-4a5e-8d38-1c8a9f6e7d40",
+      "name": "Webhook - Ticket Preview",
+      "webhookId": "27306637-9a3a-4937-8e3c-116dc2f30c57"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json.body || $json;\n\nconst formId = body.form_id;\nconst formName = body.form_name;\nconst dateFrom = body.date_from;\nconst dateTo = body.date_to;\n\nif (!formId || !dateFrom || !dateTo) {\n  throw new Error(\"form_id, date_from, and date_to are required\");\n}\n\nconst query = `type:ticket ticket_form_id:${formId} created>${dateFrom} created<${dateTo}`;\n\nreturn [\n  {\n    json: {\n      form_id: formId,\n      form_name: formName,\n      date_from: dateFrom,\n      date_to: dateTo,\n      zendesk_query: query\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2624,
+        416
+      ],
+      "id": "282a5f79-663d-43d4-9de8-4891c1d4771b",
+      "name": "Prepare Preview Request"
+    },
+    {
+      "parameters": {
+        "url": "https://kipuhealth.zendesk.com/api/v2/search.json",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "zendeskApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "query",
+              "value": "={{ $json.zendesk_query }}"
+            },
+            {
+              "name": "per_page",
+              "value": "=1"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -2368,
+        416
+      ],
+      "id": "49bc4618-2f62-4681-9c7d-7e6726fb3423",
+      "name": "Zendesk - Search Tickets",
+      "credentials": {
+        "zendeskApi": {
+          "id": "Nd6nYzUYdeDBS3Gj",
+          "name": "Equinox Zendesk Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const request = $item(0).$node[\"Prepare Preview Request\"].json;\n\nreturn [{\n  json: {\n    source: \"zendesk\",\n    filters: {\n      form_id: request.form_id,\n      form_name: request.form_name,\n      date_from: request.date_from,\n      date_to: request.date_to,\n      query_used: request.zendesk_query\n    },\n    total_found: $json.count || 0\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2112,
+        416
+      ],
+      "id": "b0cd0e94-6fe1-46ed-93db-f9c147a6e8bf",
+      "name": "Format Preview Response"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        -1872,
+        416
+      ],
+      "id": "b4b1d295-13fa-4164-b8a8-e7b20c0856e5",
+      "name": "Respond - Preview"
+    },
+    {
+      "parameters": {
+        "content": "## LLM Usage Table\n[**Click** to edit me](https://automations.kipuqa.com/projects/4lDgK71Kepm49bQz/datatables/UlmKZmk0eECsqKNa)"
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -768,
+        944
+      ],
+      "id": "62a2ab3c-953f-4b27-985a-0beb03b1b5d5",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "bta-pull-and-analyze-batch",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -2864,
+        752
+      ],
+      "id": "50dc0de2-2e19-42d6-a6e6-2f5f1e405523",
+      "name": "Webhook - Pull and Analyze Batch",
+      "webhookId": "290ce859-72c9-46bd-9b0f-fc06f044bdac"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json.body || $json;\n\nconst analysis_batch_id = body.analysis_batch_id || null;\nconst form_id = body.form_id;\nconst form_name = body.form_name || null;\nconst date_from = body.date_from;\nconst date_to = body.date_to;\nconst limit = Number(body.limit || 10);\n\nif (!form_id || !date_from || !date_to) {\n  throw new Error('form_id, date_from, and date_to are required');\n}\n\nconst zendesk_query = `type:ticket ticket_form_id:${form_id} created>${date_from} created<${date_to}`;\n\nreturn [{\n  json: {\n    analysis_batch_id,\n    form_id,\n    form_name,\n    date_from,\n    date_to,\n    limit,\n    zendesk_query\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2624,
+        752
+      ],
+      "id": "28f860c4-51f5-44b5-96a7-b75552b190cb",
+      "name": "Prepare Analysis Request"
+    },
+    {
+      "parameters": {
+        "url": "https://kipuhealth.zendesk.com/api/v2/search.json",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "zendeskApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "query",
+              "value": "={{ $json.zendesk_query }}"
+            },
+            {
+              "name": "per_page",
+              "value": "={{ $json.limit }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -2384,
+        752
+      ],
+      "id": "99c65113-c714-4d8f-883e-1e065cbe5344",
+      "name": "Zendesk - Search Batch Tickets",
+      "credentials": {
+        "zendeskApi": {
+          "id": "Nd6nYzUYdeDBS3Gj",
+          "name": "Equinox Zendesk Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const request = $('Prepare Analysis Request').first().json;\nconst tickets = $json.results || [];\n\nreturn tickets.map(t => ({\n  json: {\n    analysis_batch_id: request.analysis_batch_id,\n    form_id: request.form_id,\n    form_name: request.form_name,\n    date_from: request.date_from,\n    date_to: request.date_to,\n    ticket_id: t.id,\n    subject: t.subject || '',\n    requester_id: t.requester_id || null,\n    assignee_id: t.assignee_id || null,\n    created_at: t.created_at || null,\n    updated_at: t.updated_at || null,\n    status: t.status || null,\n    tags: t.tags || []\n  }\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2144,
+        752
+      ],
+      "id": "15998b5b-0013-4dcf-9b0f-e8a16df3441d",
+      "name": "Build Ticket Items"
+    },
+    {
+      "parameters": {
+        "url": "=https://kipuhealth.zendesk.com/api/v2/tickets/{{$json.ticket_id}}/comments.json",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "zendeskApi",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -1904,
+        752
+      ],
+      "id": "35566ea8-8780-468e-a1c2-874fa4dea779",
+      "name": "Zendesk - Get Ticket Comments",
+      "credentials": {
+        "zendeskApi": {
+          "id": "Nd6nYzUYdeDBS3Gj",
+          "name": "Equinox Zendesk Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const ticket = $('Build Ticket Items').item.json;\nconst comments = $json.comments || [];\n\nfunction getRole(comment) {\n  if (comment.author_id === ticket.requester_id) return 'customer';\n  if (comment.author_id === ticket.assignee_id) return 'assignee';\n  if (comment.public === false) return 'internal';\n  return 'other_agent';\n}\n\nconst structuredComments = comments\n  .filter(c => c.public !== false) // keep public comments only\n  .slice(-5) // keep last 5 comments\n  .map(c => ({\n    author_id: c.author_id,\n    role: getRole(c),\n    public: c.public,\n    created_at: c.created_at,\n    body: (c.body || c.plain_body || '').slice(0, 1200) // cap each comment\n  }));\n\nreturn {\n  json: {\n    analysis_batch_id: ticket.analysis_batch_id,\n    form_id: ticket.form_id,\n    form_name: ticket.form_name,\n    date_from: ticket.date_from,\n    date_to: ticket.date_to,\n    ticket_id: ticket.ticket_id,\n    subject: ticket.subject,\n    requester_id: ticket.requester_id,\n    assignee_id: ticket.assignee_id,\n    created_at: ticket.created_at,\n    updated_at: ticket.updated_at,\n    status: ticket.status,\n    tags: ticket.tags,\n    comment_count: structuredComments.length,\n    first_comment_at: structuredComments[0]?.created_at || null,\n    last_comment_at: structuredComments[structuredComments.length - 1]?.created_at || null,\n    comments: structuredComments\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1664,
+        752
+      ],
+      "id": "a37a319a-b01e-486b-a2f8-9fe0e8bd398c",
+      "name": "Build Analysis Input"
+    },
+    {
+      "parameters": {
+        "jsCode": "const batch = $json;\n\nconst results = Array.isArray(batch.normalized_results)\n  ? batch.normalized_results\n  : [];\n\nconst opportunity_groups = Array.isArray(batch.opportunity_groups)\n  ? batch.opportunity_groups\n  : [];\n\nconst heatmap_rows = Array.isArray(batch.heatmap_rows)\n  ? batch.heatmap_rows\n  : [];\n\nconst rootCauseCountsMap = new Map();\nconst tagCountsMap = new Map();\n\nlet kbOpportunityCount = 0;\nlet automationOpportunityCount = 0;\n\nlet totalPromptTokens = 0;\nlet totalCompletionTokens = 0;\nlet totalTokens = 0;\n\nfor (const row of results) {\n  const category = row.root_cause_category || 'Unclear';\n  rootCauseCountsMap.set(\n    category,\n    (rootCauseCountsMap.get(category) || 0) + 1\n  );\n\n  const tags = Array.isArray(row.normalized_tags)\n    ? row.normalized_tags\n    : String(row.key_tags || '')\n        .split(',')\n        .map(t => t.trim())\n        .filter(Boolean);\n\n  for (const tag of tags) {\n    tagCountsMap.set(tag, (tagCountsMap.get(tag) || 0) + 1);\n  }\n\n  if (row.knowledge_base_opportunity === 'Yes') {\n    kbOpportunityCount += 1;\n  }\n\n  if (row.automation_opportunity === 'Yes') {\n    automationOpportunityCount += 1;\n  }\n\n  totalPromptTokens += Number(row.prompt_tokens || 0);\n  totalCompletionTokens += Number(row.completion_tokens || 0);\n  totalTokens += Number(row.total_tokens || 0);\n}\n\ntotalPromptTokens += Number(batch.llm2_prompt_tokens || 0);\ntotalCompletionTokens += Number(batch.llm2_completion_tokens || 0);\ntotalTokens += Number(batch.llm2_total_tokens || 0);\n\nconst root_cause_category_counts = Array.from(rootCauseCountsMap.entries())\n  .map(([category, count]) => ({\n    category,\n    count\n  }))\n  .sort((a, b) => {\n    if (b.count !== a.count) return b.count - a.count;\n    return a.category.localeCompare(b.category);\n  });\n\nconst top_tags = Array.from(tagCountsMap.entries())\n  .map(([tag, count]) => ({\n    tag,\n    count\n  }))\n  .sort((a, b) => {\n    if (b.count !== a.count) return b.count - a.count;\n    return a.tag.localeCompare(b.tag);\n  })\n  .slice(0, 10);\n\nconst sorted_opportunity_groups = [...opportunity_groups].sort((a, b) => {\n  if ((b.linked_ticket_count || 0) !== (a.linked_ticket_count || 0)) {\n    return (b.linked_ticket_count || 0) - (a.linked_ticket_count || 0);\n  }\n  return String(a.title || '').localeCompare(String(b.title || ''));\n});\n\nconst sorted_heatmap_rows = [...heatmap_rows].sort((a, b) => {\n  const categoryCompare = String(a.root_cause_category || '').localeCompare(\n    String(b.root_cause_category || '')\n  );\n\n  if (categoryCompare !== 0) return categoryCompare;\n\n  return String(a.form_name || '').localeCompare(String(b.form_name || ''));\n});\n\nreturn [\n  {\n    json: {\n      analysis_batch_id: batch.analysis_batch_id,\n      form_id: batch.form_id,\n      form_name: batch.form_name,\n      date_from: batch.date_from,\n      date_to: batch.date_to,\n      total_tickets: Number(batch.total_tickets || results.length),\n      analyzed_count: Number(batch.analyzed_count || results.length),\n\n      batch_summary: {\n        kb_opportunity_count: kbOpportunityCount,\n        automation_opportunity_count: automationOpportunityCount,\n        root_cause_category_counts,\n        top_tags,\n        total_prompt_tokens: totalPromptTokens,\n        total_completion_tokens: totalCompletionTokens,\n        total_tokens: totalTokens\n      },\n\n      opportunity_groups: sorted_opportunity_groups,\n      heatmap_rows: sorted_heatmap_rows,\n\n      results: results.map(r => ({\n        ticket_id: r.ticket_id,\n        issue_summary: r.issue_summary,\n        root_cause_category: r.root_cause_category,\n        root_cause_detail: r.root_cause_detail,\n        customer_goal: r.customer_goal,\n        resolution_status: r.resolution_status,\n        agent_performance_notes: r.agent_performance_notes,\n        agent_improvement_opportunities: r.agent_improvement_opportunities,\n        knowledge_base_opportunity: r.knowledge_base_opportunity,\n        knowledge_base_opportunity_detail: r.knowledge_base_opportunity_detail,\n        automation_opportunity: r.automation_opportunity,\n        automation_opportunity_detail: r.automation_opportunity_detail,\n        suggested_opportunity_type: r.suggested_opportunity_type,\n        opportunity_type: r.opportunity_type,\n        key_tags: r.key_tags,\n        prompt_tokens: Number(r.prompt_tokens || 0),\n        completion_tokens: Number(r.completion_tokens || 0),\n        total_tokens: Number(r.total_tokens || 0),\n        created_at: r.created_at\n      }))\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        368,
+        752
+      ],
+      "id": "fa20f187-d203-4ab9-8378-5a29f8c4cc22",
+      "name": "Summarize Batch Results"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        608,
+        752
+      ],
+      "id": "9a38a8c8-0aac-4550-823e-09a0c4234c57",
+      "name": "Respond - Analysis"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://automations.kipuqa.com/webhook/d8636958-7ad8-4888-a0cf-619308193a2c",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "system_prompt",
+              "value": "You are a precise customer support analyst. Follow instructions exactly. Output only the requested fields."
+            },
+            {
+              "name": "user_prompt",
+              "value": "=={{ $json.prompt }}"
+            },
+            {
+              "name": "=temperature",
+              "value": "=0.2"
+            },
+            {
+              "name": "max_tokens",
+              "value": "=1200"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -1184,
+        752
+      ],
+      "id": "9a78d348-cbbe-433d-8d9f-d72de458285f",
+      "name": "Kipu LLM Webhook1",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "8gpQNhEjspc3sQui",
+          "name": "KipuLLM"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const raw = $json.output_text || $json.text || '';\nconst text = String(raw).replace(/\\\\n/g, '\\n');\nconst source = $('Build Analysis Input').item.json;\n\nfunction extract(label, nextLabels = []) {\n  const escapedLabel = label.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');\n  const nextPattern = nextLabels\n    .map(l => l.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&'))\n    .join('|');\n\n  const regex = nextPattern\n    ? new RegExp(`${escapedLabel}\\\\s*([\\\\s\\\\S]*?)(?=\\\\n(?:${nextPattern})\\\\s*|$)`, 'i')\n    : new RegExp(`${escapedLabel}\\\\s*([\\\\s\\\\S]*)$`, 'i');\n\n  const match = text.match(regex);\n  return match ? match[1].trim() : '';\n}\n\nfunction cleanText(value) {\n  return String(value || '')\n    .replace(/\\s+/g, ' ')\n    .trim();\n}\n\nfunction sanitizeText(value) {\n  let v = cleanText(value);\n\n  v = v.replace(/\\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}\\b/gi, '[REDACTED_EMAIL]');\n  v = v.replace(/https?:\\/\\/\\S+/gi, '[REDACTED_URL]');\n  v = v.replace(/\\+?\\d[\\d\\-\\(\\) ]{7,}\\d/g, '[REDACTED_PHONE]');\n  v = v.replace(/\\b\\d{5,}\\b/g, '[REDACTED_NUMBER]');\n\n  return v;\n}\n\nfunction normalizeYesNo(value) {\n  const v = cleanText(value).toLowerCase();\n  if (v === 'yes' || v.startsWith('yes')) return 'Yes';\n  if (v === 'no' || v.startsWith('no')) return 'No';\n  return 'Unclear';\n}\n\nfunction normalizeStatus(value) {\n  const v = cleanText(value).toLowerCase();\n  if (v === 'resolved' || v.startsWith('resolved')) return 'Resolved';\n  if (v === 'not resolved' || v.startsWith('not resolved') || v.startsWith('unresolved')) return 'Not Resolved';\n  if (v === 'pending customer action' || v.startsWith('pending customer action')) return 'Pending Customer Action';\n  return 'Unclear';\n}\n\nconst allowedCategories = new Set([\n  'Missing client data',\n  'Missing required credentials',\n  'Access / permissions issue',\n  'Configuration / setup issue',\n  'Process / workflow gap',\n  'User error / misunderstanding',\n  'Knowledge / training gap',\n  'Software defect / bug',\n  'Software usability / UI friction',\n  'Integration / third-party dependency',\n  'Performance / timeout / latency',\n  'Communication / follow-up breakdown',\n  'Policy / compliance requirement',\n  'Duplicate / merged / cross-ticket confusion',\n  'Unclear'\n]);\n\nfunction normalizeCategory(value) {\n  const cleaned = sanitizeText(value);\n  if (allowedCategories.has(cleaned)) return cleaned;\n\n  const lower = cleaned.toLowerCase();\n  const map = [\n    ['missing client data', 'Missing client data'],\n    ['missing required credentials', 'Missing required credentials'],\n    ['access', 'Access / permissions issue'],\n    ['permission', 'Access / permissions issue'],\n    ['configuration', 'Configuration / setup issue'],\n    ['setup', 'Configuration / setup issue'],\n    ['workflow', 'Process / workflow gap'],\n    ['process', 'Process / workflow gap'],\n    ['user error', 'User error / misunderstanding'],\n    ['misunderstanding', 'User error / misunderstanding'],\n    ['training', 'Knowledge / training gap'],\n    ['knowledge', 'Knowledge / training gap'],\n    ['bug', 'Software defect / bug'],\n    ['defect', 'Software defect / bug'],\n    ['usability', 'Software usability / UI friction'],\n    ['ui', 'Software usability / UI friction'],\n    ['integration', 'Integration / third-party dependency'],\n    ['third-party', 'Integration / third-party dependency'],\n    ['latency', 'Performance / timeout / latency'],\n    ['timeout', 'Performance / timeout / latency'],\n    ['performance', 'Performance / timeout / latency'],\n    ['communication', 'Communication / follow-up breakdown'],\n    ['follow-up', 'Communication / follow-up breakdown'],\n    ['policy', 'Policy / compliance requirement'],\n    ['compliance', 'Policy / compliance requirement'],\n    ['duplicate', 'Duplicate / merged / cross-ticket confusion'],\n    ['merged', 'Duplicate / merged / cross-ticket confusion'],\n    ['unclear', 'Unclear']\n  ];\n\n  for (const [needle, normalized] of map) {\n    if (lower.includes(needle)) return normalized;\n  }\n\n  return 'Unclear';\n}\n\nfunction normalizeOpportunityType(value) {\n  const cleaned = sanitizeText(value);\n  const lower = cleaned.toLowerCase();\n\n  if (cleaned === 'Knowledge Base') return 'Knowledge Base';\n  if (cleaned === 'Process Update') return 'Process Update';\n  if (cleaned === 'Agent Training') return 'Agent Training';\n  if (cleaned === 'Product Improvement') return 'Product Improvement';\n\n  if (lower.includes('knowledge') || lower.includes('documentation') || lower.includes('kb')) {\n    return 'Knowledge Base';\n  }\n  if (lower.includes('process') || lower.includes('workflow') || lower.includes('routing') || lower.includes('handoff')) {\n    return 'Process Update';\n  }\n  if (lower.includes('agent') || lower.includes('training') || lower.includes('coaching') || lower.includes('follow-up')) {\n    return 'Agent Training';\n  }\n\n  return 'Product Improvement';\n}\n\nfunction cleanTags(value) {\n  return sanitizeText(value)\n    .split(',')\n    .map(t => t.trim())\n    .filter(Boolean)\n    .slice(0, 5)\n    .join(', ');\n}\n\nconst issue_summary = sanitizeText(\n  extract('Issue Summary:', ['Root Cause Category:'])\n);\n\nconst root_cause_category = normalizeCategory(\n  extract('Root Cause Category:', ['Root Cause Detail:'])\n);\n\nconst root_cause_detail = sanitizeText(\n  extract('Root Cause Detail:', ['Customer Goal:'])\n) || 'Unclear';\n\nconst customer_goal = sanitizeText(\n  extract('Customer Goal:', ['Resolution Status:'])\n);\n\nconst resolution_status = normalizeStatus(\n  extract('Resolution Status:', ['Agent Performance Notes:'])\n);\n\nconst agent_performance_notes = sanitizeText(\n  extract('Agent Performance Notes:', ['Agent Improvement Opportunities:'])\n) || 'Unclear';\n\nconst agent_improvement_opportunities = sanitizeText(\n  extract('Agent Improvement Opportunities:', ['Knowledge Base Opportunity:'])\n) || 'None';\n\nconst kb_flag = normalizeYesNo(\n  extract('Knowledge Base Opportunity:', ['Knowledge Base Opportunity Detail:'])\n);\n\nconst kb_detail = sanitizeText(\n  extract('Knowledge Base Opportunity Detail:', ['Automation Opportunity:'])\n) || (kb_flag === 'Yes' ? 'Recommendation present but not parsed cleanly' : 'None');\n\nconst automation_flag = normalizeYesNo(\n  extract('Automation Opportunity:', ['Automation Opportunity Detail:'])\n);\n\nconst automation_detail = sanitizeText(\n  extract('Automation Opportunity Detail:', ['Suggested Opportunity Type:'])\n) || (automation_flag === 'Yes' ? 'Recommendation present but not parsed cleanly' : 'None');\n\nconst suggested_opportunity_type = normalizeOpportunityType(\n  extract('Suggested Opportunity Type:', ['Key Tags:'])\n);\n\nconst key_tags = cleanTags(\n  extract('Key Tags:')\n);\n\nreturn {\n  json: {\n    analysis_batch_id: source.analysis_batch_id,\n    form_id: source.form_id,\n    form_name: source.form_name,\n    date_from: source.date_from,\n    date_to: source.date_to,\n\n    ticket_id: source.ticket_id,\n    issue_summary,\n    root_cause_category,\n    root_cause_detail,\n    customer_goal,\n    resolution_status,\n    agent_performance_notes,\n    agent_improvement_opportunities,\n    knowledge_base_opportunity: kb_flag,\n    knowledge_base_opportunity_detail: kb_detail,\n    automation_opportunity: automation_flag,\n    automation_opportunity_detail: automation_detail,\n    suggested_opportunity_type,\n    key_tags,\n\n    prompt_tokens: $json.usage?.prompt_tokens || 0,\n    completion_tokens: $json.usage?.completion_tokens || 0,\n    total_tokens: $json.usage?.total_tokens || 0,\n\n    created_at: source.created_at || new Date().toISOString()\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -736,
+        752
+      ],
+      "id": "5c2e1a26-dc71-4778-8da2-3f6276ee2b59",
+      "name": "Parse Ticket Analysis1"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const subject = $json.subject || '';\nconst ticket_id = $json.ticket_id || '';\nconst comment_count = $json.comment_count || 0;\nconst first_comment_at = $json.first_comment_at || '';\nconst last_comment_at = $json.last_comment_at || '';\nconst status = $json.status || '';\nconst tags = Array.isArray($json.tags) ? $json.tags.join(', ') : '';\nconst comments = $json.comments || [];\n\nconst prompt = `You are a precise customer support analyst reviewing one Zendesk support ticket.\n\nYour job is to extract only structured operational insights supported by the ticket content.\nDo not make up facts.\nDo not include customer names, email addresses, phone numbers, URLs, account numbers, IDs, or any PHI.\nDo not include raw conversation text in your answer.\nIf something is unknown, return \"Unclear\".\nUse plain text only.\nDo not use markdown, bullets, commentary, or code fences.\n\nTICKET METADATA\nTicket ID: ${ticket_id}\nSubject: ${subject}\nZendesk Status: ${status}\nZendesk Tags: ${tags}\nComment Count: ${comment_count}\nFirst Comment At: ${first_comment_at}\nLast Comment At: ${last_comment_at}\n\nTICKET CONVERSATION\n${JSON.stringify(comments, null, 2)}\n\nINSTRUCTIONS\n\n1. Issue Summary\n- 1 short sentence\n- Describe the main problem without quoting the conversation\n- No requester details\n\n2. Root Cause Category\nUse only one of these exact values:\nMissing client data\nMissing required credentials\nAccess / permissions issue\nConfiguration / setup issue\nProcess / workflow gap\nUser error / misunderstanding\nKnowledge / training gap\nSoftware defect / bug\nSoftware usability / UI friction\nIntegration / third-party dependency\nPerformance / timeout / latency\nCommunication / follow-up breakdown\nPolicy / compliance requirement\nDuplicate / merged / cross-ticket confusion\nUnclear\n\n3. Root Cause Detail\n- 1 short sentence\n- Operational cause only\n- If not clearly supported, return Unclear\n\n4. Customer Goal\n- 1 short sentence describing what the customer was trying to accomplish\n- No identifying details\n\n5. Resolution Status\nUse only one of these exact values:\nResolved\nNot Resolved\nPending Customer Action\nUnclear\n\n6. Agent Performance Notes\n- 1 short sentence\n- Focus only on handling quality or clarity\n- If unclear, return Unclear\n\n7. Agent Improvement Opportunities\n- 1 short practical sentence only if clearly warranted\n- Otherwise return None\n\n8. Knowledge Base Opportunity\nUse only one of these exact values:\nYes\nNo\n\n9. Knowledge Base Opportunity Detail\n- If Yes, give one short concrete recommendation\n- If No, return None\n\n10. Automation Opportunity\nUse only one of these exact values:\nYes\nNo\n\n11. Automation Opportunity Detail\n- If Yes, give one short concrete recommendation\n- If No, return None\n\n12. Suggested Opportunity Type\nChoose only one of these exact values:\nKnowledge Base\nProcess Update\nAgent Training\nProduct Improvement\n\nUse this logic:\n- Knowledge Base = missing or unclear documentation, help article, instructions, or self-service guidance would help\n- Process Update = internal workflow, routing, handoff, provisioning, required inputs, triage, or SOP changes would help\n- Agent Training = agent behavior, follow-up, communication quality, troubleshooting approach, or coaching would help\n- Product Improvement = product defect, usability friction, feature gap, confusing UX, integration limitation, or system behavior should be improved\n\n13. Key Tags\n- Return 3 to 5 short tags separated by commas\n- No names, no IDs, no PHI\n\nReturn exactly this format and nothing else:\n\nIssue Summary:\nRoot Cause Category:\nRoot Cause Detail:\nCustomer Goal:\nResolution Status:\nAgent Performance Notes:\nAgent Improvement Opportunities:\nKnowledge Base Opportunity:\nKnowledge Base Opportunity Detail:\nAutomation Opportunity:\nAutomation Opportunity Detail:\nSuggested Opportunity Type:\nKey Tags:`;\n\nreturn {\n  json: {\n    ...$json,\n    prompt\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1456,
+        752
+      ],
+      "id": "bdb116ce-271c-43f1-85c2-6f2009ef0995",
+      "name": "Set Analysis Prompt1"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst request = $('Prepare Analysis Request').first().json;\n\nconst ticket_results = items.map(item => {\n  const r = item.json || {};\n  return {\n    ticket_id: r.ticket_id,\n    issue_summary: r.issue_summary || 'Unclear',\n    root_cause_category: r.root_cause_category || 'Unclear',\n    root_cause_detail: r.root_cause_detail || 'Unclear',\n    customer_goal: r.customer_goal || 'Unclear',\n    resolution_status: r.resolution_status || 'Unclear',\n    agent_performance_notes: r.agent_performance_notes || 'Unclear',\n    agent_improvement_opportunities: r.agent_improvement_opportunities || 'None',\n    knowledge_base_opportunity: r.knowledge_base_opportunity || 'Unclear',\n    knowledge_base_opportunity_detail: r.knowledge_base_opportunity_detail || 'None',\n    automation_opportunity: r.automation_opportunity || 'Unclear',\n    automation_opportunity_detail: r.automation_opportunity_detail || 'None',\n    suggested_opportunity_type: r.suggested_opportunity_type || 'Product Improvement',\n    key_tags: r.key_tags || '',\n    prompt_tokens: Number(r.prompt_tokens || 0),\n    completion_tokens: Number(r.completion_tokens || 0),\n    total_tokens: Number(r.total_tokens || 0),\n    created_at: r.created_at || null\n  };\n});\n\nreturn [{\n  json: {\n    analysis_batch_id: request.analysis_batch_id,\n    form_id: request.form_id,\n    form_name: request.form_name,\n    date_from: request.date_from,\n    date_to: request.date_to,\n    total_tickets: ticket_results.length,\n    analyzed_count: ticket_results.length,\n    ticket_results\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -528,
+        752
+      ],
+      "id": "96a36bf6-ff82-4fb1-89c2-8260e9c1ffe8",
+      "name": "Build Batch Group Input"
+    },
+    {
+      "parameters": {
+        "jsCode": "const batch = $json;\n\nconst prompt = `You are a support insights analyst performing a SECOND PASS normalization across a batch of already-structured ticket analyses.\n\nYour job is to:\n1. tighten and correct ticket-level knowledge base opportunity decisions\n2. normalize ticket-level tags into reusable standardized tags\n3. normalize ticket-level opportunity types\n4. group similar tickets into recurring opportunity groups\n5. produce heatmap-ready counts by root cause category and form\n\nImportant rules:\n- Use only the structured ticket records provided below\n- Do not invent facts not supported by those records\n- Do not output raw conversation text\n- Do not output names, email addresses, phone numbers, account numbers, IDs other than Zendesk ticket IDs\n- Standardize similar wording into reusable operational labels\n- Prefer stable, reusable labels that would work across tens of thousands of tickets\n- Avoid over-fragmentation\n- Group by shared problem pattern and shared likely fix path, not by superficial wording differences\n\nKNOWLEDGE BASE DECISION RULES\nMark Knowledge Base opportunity as \"Yes\" only when a reusable article, checklist, FAQ, onboarding guide, or self-service instruction page would likely prevent future tickets even if no human agent were involved.\n\nMark Knowledge Base opportunity as \"No\" when the main fix is any of the following:\n- form validation\n- input validation\n- required-field enforcement\n- workflow routing\n- operational handoff\n- provisioning logic\n- system configuration enforcement\n- agent execution quality\n- product defect or UX limitation\n- one-off data correction\n- missing customer-specific information that must still be gathered manually\n\nIf both documentation and process change could help, choose \"No\" unless documentation is clearly the PRIMARY fix.\n\nA KB opportunity should be prevention-through-guidance, not prevention-through-system-enforcement.\nWhen in doubt, choose \"No\".\n\nOPPORTUNITY TYPE RULES\nUse only one of these exact values:\nKnowledge Base\nProcess Update\nAgent Training\nProduct Improvement\n\nUse this logic:\n- Knowledge Base = better external or internal documentation / self-service guidance is the main fix\n- Process Update = workflow, routing, handoff, intake, validation, provisioning, SOP, or operational process change is the main fix\n- Agent Training = agent communication, troubleshooting, follow-up, ownership, or handling quality is the main fix\n- Product Improvement = product defect, UX friction, system behavior, feature gap, or integration behavior is the main fix\n\nTAG RULES\nFor each ticket, return 3 to 5 normalized tags:\n- short noun phrases\n- reusable across many tickets\n- merge close synonyms\n- no PHI\n- no customer-specific data\n- avoid overly broad tags like \"issue\" or \"support\"\n- avoid creating multiple tags for the same concept just because wording differs\n\nGROUPING RULES\nCreate recurring opportunity groups based on the PRIMARY fix path.\n\nGroup tickets together when the same primary intervention would resolve or prevent them:\n- Knowledge Base\n- Process Update\n- Agent Training\n- Product Improvement\n\nDo not combine tickets into one group if the primary fix path differs, even if the issue theme is similar.\n\nWhen assigning root_cause_category for a group:\n- choose the dominant category if one clearly represents most tickets\n- otherwise choose the category of the primary fix driver\n- do not force all grouped tickets to have identical categories\n\nHEATMAP RULES\nReturn one row per root cause category x form_name combination with ticket_count.\n\nReturn ONLY valid JSON in exactly this shape:\n\n{\n  \"normalized_results\": [\n    {\n      \"ticket_id\": 123,\n      \"knowledge_base_opportunity\": \"Yes\",\n      \"knowledge_base_opportunity_detail\": \"Create a checklist for ...\",\n      \"opportunity_type\": \"Process Update\",\n      \"normalized_tags\": [\"tag one\", \"tag two\", \"tag three\"]\n    }\n  ],\n  \"opportunity_groups\": [\n    {\n      \"group_key\": \"process-update__provider-registration-prereqs\",\n      \"title\": \"Provider registration prerequisites\",\n      \"opportunity_type\": \"Process Update\",\n      \"root_cause_category\": \"Missing required credentials\",\n      \"summary\": \"Multiple tickets reflected missing provider registration prerequisites before the requested workflow could be completed.\",\n      \"recommended_next_step\": \"Create an intake checklist and validation step for provider registration prerequisites before processing these requests.\",\n      \"zendesk_ticket_ids\": [123, 456]\n    }\n  ],\n  \"heatmap_rows\": [\n    {\n      \"root_cause_category\": \"Missing required credentials\",\n      \"form_name\": \"CRM Form\",\n      \"ticket_count\": 2\n    }\n  ]\n}\n\nBATCH METADATA\n${JSON.stringify({\n  analysis_batch_id: batch.analysis_batch_id,\n  form_id: batch.form_id,\n  form_name: batch.form_name,\n  date_from: batch.date_from,\n  date_to: batch.date_to,\n  total_tickets: batch.total_tickets,\n  analyzed_count: batch.analyzed_count\n}, null, 2)}\n\nTICKET RESULTS\n${JSON.stringify(batch.ticket_results, null, 2)}\n`;\n\nreturn {\n  json: {\n    ...$json,\n    prompt\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -304,
+        752
+      ],
+      "id": "aa5fc55a-987d-47d0-962f-cf2015e17354",
+      "name": "Set Batch Group Prompt"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://automations.kipuqa.com/webhook/d8636958-7ad8-4888-a0cf-619308193a2c",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "system_prompt",
+              "value": "You are a precise customer support analyst. Follow instructions exactly. Output only the requested fields."
+            },
+            {
+              "name": "user_prompt",
+              "value": "=={{ $json.prompt }}"
+            },
+            {
+              "name": "=temperature",
+              "value": "=0.1"
+            },
+            {
+              "name": "max_tokens",
+              "value": "=4000"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -96,
+        752
+      ],
+      "id": "5cf71f57-bf38-45ce-a7f3-16d723c8f16c",
+      "name": "Kipu LLM Webhook2",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "8gpQNhEjspc3sQui",
+          "name": "KipuLLM"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "dataTableId": {
+          "__rl": true,
+          "value": "UlmKZmk0eECsqKNa",
+          "mode": "list",
+          "cachedResultName": "KipuLLMUsage",
+          "cachedResultUrl": "/projects/4lDgK71Kepm49bQz/datatables/UlmKZmk0eECsqKNa"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "prompt_tokens": "={{ $json.usage.prompt_tokens }}",
+            "completion_tokens": "={{ $json.usage.completion_tokens }}",
+            "total_tokens": "={{ $json.usage.total_tokens }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "prompt_tokens",
+              "displayName": "prompt_tokens",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "completion_tokens",
+              "displayName": "completion_tokens",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "total_tokens",
+              "displayName": "total_tokens",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        144,
+        944
+      ],
+      "id": "298f8670-84fc-4580-8b8d-41445304664b",
+      "name": "Kipu LLM Usage2"
+    },
+    {
+      "parameters": {
+        "dataTableId": {
+          "__rl": true,
+          "value": "UlmKZmk0eECsqKNa",
+          "mode": "list",
+          "cachedResultName": "KipuLLMUsage",
+          "cachedResultUrl": "/projects/4lDgK71Kepm49bQz/datatables/UlmKZmk0eECsqKNa"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "prompt_tokens": "={{ $json.usage.prompt_tokens }}",
+            "completion_tokens": "={{ $json.usage.completion_tokens }}",
+            "total_tokens": "={{ $json.usage.total_tokens }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "prompt_tokens",
+              "displayName": "prompt_tokens",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "completion_tokens",
+              "displayName": "completion_tokens",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "total_tokens",
+              "displayName": "total_tokens",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        -960,
+        912
+      ],
+      "id": "ab698d48-8268-4fc6-9672-7d98b23cc830",
+      "name": "Kipu LLM Usage1"
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $json.output_text || $json.text || $json.response || '';\nconst request = $('Prepare Analysis Request').first().json;\nconst batchInput = $('Build Batch Group Input').first().json;\n\nfunction tryParseJson(text) {\n  if (typeof text !== 'string') return null;\n\n  const trimmed = text.trim();\n\n  try {\n    return JSON.parse(trimmed);\n  } catch (e) {}\n\n  const fencedMatch = trimmed.match(/```(?:json)?\\s*([\\s\\S]*?)```/i);\n  if (fencedMatch) {\n    try {\n      return JSON.parse(fencedMatch[1].trim());\n    } catch (e) {}\n  }\n\n  const firstBrace = trimmed.indexOf('{');\n  const lastBrace = trimmed.lastIndexOf('}');\n  if (firstBrace >= 0 && lastBrace > firstBrace) {\n    const candidate = trimmed.slice(firstBrace, lastBrace + 1);\n    try {\n      return JSON.parse(candidate);\n    } catch (e) {}\n  }\n\n  return null;\n}\n\nfunction sanitizeText(value) {\n  return String(value || '')\n    .replace(/\\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}\\b/gi, '[REDACTED_EMAIL]')\n    .replace(/https?:\\/\\/\\S+/gi, '[REDACTED_URL]')\n    .replace(/\\+?\\d[\\d\\-\\(\\) ]{7,}\\d/g, '[REDACTED_PHONE]')\n    .replace(/\\s+/g, ' ')\n    .trim();\n}\n\nfunction normalizeYesNo(value) {\n  const v = sanitizeText(value).toLowerCase();\n  if (v === 'yes' || v.startsWith('yes')) return 'Yes';\n  return 'No';\n}\n\nfunction normalizeOpportunityType(value) {\n  const cleaned = sanitizeText(value);\n  if (cleaned === 'Knowledge Base') return 'Knowledge Base';\n  if (cleaned === 'Process Update') return 'Process Update';\n  if (cleaned === 'Agent Training') return 'Agent Training';\n  if (cleaned === 'Product Improvement') return 'Product Improvement';\n  return 'Process Update';\n}\n\nfunction slugify(value) {\n  return String(value || '')\n    .toLowerCase()\n    .replace(/[^a-z0-9]+/g, '-')\n    .replace(/^-+|-+$/g, '');\n}\n\nconst parsed = tryParseJson(raw);\n\nif (!parsed) {\n  throw new Error('Parse Batch Grouping: LLM2 did not return valid JSON.');\n}\n\nconst originalResultsByTicketId = new Map(\n  (batchInput.ticket_results || []).map(r => [String(r.ticket_id), r])\n);\n\nconst normalized_results = Array.isArray(parsed.normalized_results)\n  ? parsed.normalized_results\n      .map(r => {\n        const ticketId = r.ticket_id;\n        const original = originalResultsByTicketId.get(String(ticketId));\n        if (!original) return null;\n\n        const normalized_tags = Array.isArray(r.normalized_tags)\n          ? r.normalized_tags\n              .map(t => sanitizeText(t))\n              .filter(Boolean)\n              .slice(0, 5)\n          : [];\n\n        return {\n          ticket_id: original.ticket_id,\n          issue_summary: original.issue_summary,\n          root_cause_category: original.root_cause_category,\n          root_cause_detail: original.root_cause_detail,\n          customer_goal: original.customer_goal,\n          resolution_status: original.resolution_status,\n          agent_performance_notes: original.agent_performance_notes,\n          agent_improvement_opportunities: original.agent_improvement_opportunities,\n          knowledge_base_opportunity: normalizeYesNo(r.knowledge_base_opportunity),\n          knowledge_base_opportunity_detail: sanitizeText(r.knowledge_base_opportunity_detail) || 'None',\n          automation_opportunity: original.automation_opportunity,\n          automation_opportunity_detail: original.automation_opportunity_detail,\n          suggested_opportunity_type: original.suggested_opportunity_type,\n          opportunity_type: normalizeOpportunityType(r.opportunity_type),\n          key_tags: normalized_tags.join(', '),\n          normalized_tags,\n          prompt_tokens: original.prompt_tokens || 0,\n          completion_tokens: original.completion_tokens || 0,\n          total_tokens: original.total_tokens || 0,\n          created_at: original.created_at || null\n        };\n      })\n      .filter(Boolean)\n  : [];\n\nconst allowedCategories = new Set(\n  normalized_results.map(r => r.root_cause_category)\n);\n\nconst opportunity_groups = Array.isArray(parsed.opportunity_groups)\n  ? parsed.opportunity_groups\n      .map(g => {\n        const ticketIds = Array.isArray(g.zendesk_ticket_ids)\n          ? g.zendesk_ticket_ids.filter(id => originalResultsByTicketId.has(String(id)))\n          : [];\n\n        const rootCauseCategory = sanitizeText(g.root_cause_category);\n        const safeCategory = allowedCategories.has(rootCauseCategory)\n          ? rootCauseCategory\n          : 'Unclear';\n\n        return {\n          group_key: sanitizeText(g.group_key) || slugify(`${g.opportunity_type || 'group'}-${g.title || 'group'}`),\n          title: sanitizeText(g.title) || 'Untitled Opportunity Group',\n          opportunity_type: normalizeOpportunityType(g.opportunity_type),\n          root_cause_category: safeCategory,\n          summary: sanitizeText(g.summary) || 'Recurring support pattern detected.',\n          recommended_next_step: sanitizeText(g.recommended_next_step) || 'Review this recurring issue pattern and define the next operational action.',\n          linked_ticket_count: [...new Set(ticketIds)].length,\n          zendesk_ticket_ids: [...new Set(ticketIds)]\n        };\n      })\n      .filter(g => g.zendesk_ticket_ids.length > 0)\n  : [];\n\nconst heatmap_rows = Array.isArray(parsed.heatmap_rows)\n  ? parsed.heatmap_rows.map(h => ({\n      root_cause_category: allowedCategories.has(sanitizeText(h.root_cause_category))\n        ? sanitizeText(h.root_cause_category)\n        : 'Unclear',\n      form_name: sanitizeText(h.form_name) || request.form_name || 'Unknown Form',\n      ticket_count: Number(h.ticket_count || 0)\n    }))\n  : [];\n\nreturn {\n  json: {\n    analysis_batch_id: request.analysis_batch_id,\n    form_id: request.form_id,\n    form_name: request.form_name,\n    date_from: request.date_from,\n    date_to: request.date_to,\n    total_tickets: batchInput.total_tickets || normalized_results.length,\n    analyzed_count: normalized_results.length,\n    normalized_results,\n    opportunity_groups,\n    heatmap_rows,\n    llm2_prompt_tokens: $json.usage?.prompt_tokens || 0,\n    llm2_completion_tokens: $json.usage?.completion_tokens || 0,\n    llm2_total_tokens: $json.usage?.total_tokens || 0\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        160,
+        752
+      ],
+      "id": "9d175c7d-3f3a-494a-a322-f7ac9793544d",
+      "name": "Parse Batch Grouping"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook - Filter Metadata": {
+      "main": [
+        [
+          {
+            "node": "Zendesk - Get Ticket Forms",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zendesk - Get Ticket Forms": {
+      "main": [
+        [
+          {
+            "node": "Zendesk - Get Ticket Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zendesk - Get Ticket Fields": {
+      "main": [
+        [
+          {
+            "node": "Build Metadata Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Metadata Response": {
+      "main": [
+        [
+          {
+            "node": "Respond - Metadata",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook - Ticket Preview": {
+      "main": [
+        [
+          {
+            "node": "Prepare Preview Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Preview Request": {
+      "main": [
+        [
+          {
+            "node": "Zendesk - Search Tickets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zendesk - Search Tickets": {
+      "main": [
+        [
+          {
+            "node": "Format Preview Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Preview Response": {
+      "main": [
+        [
+          {
+            "node": "Respond - Preview",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook - Pull and Analyze Batch": {
+      "main": [
+        [
+          {
+            "node": "Prepare Analysis Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Analysis Request": {
+      "main": [
+        [
+          {
+            "node": "Zendesk - Search Batch Tickets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zendesk - Search Batch Tickets": {
+      "main": [
+        [
+          {
+            "node": "Build Ticket Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Ticket Items": {
+      "main": [
+        [
+          {
+            "node": "Zendesk - Get Ticket Comments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zendesk - Get Ticket Comments": {
+      "main": [
+        [
+          {
+            "node": "Build Analysis Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Analysis Input": {
+      "main": [
+        [
+          {
+            "node": "Set Analysis Prompt1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Summarize Batch Results": {
+      "main": [
+        [
+          {
+            "node": "Respond - Analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kipu LLM Webhook1": {
+      "main": [
+        [
+          {
+            "node": "Kipu LLM Usage1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Parse Ticket Analysis1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Ticket Analysis1": {
+      "main": [
+        [
+          {
+            "node": "Build Batch Group Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Analysis Prompt1": {
+      "main": [
+        [
+          {
+            "node": "Kipu LLM Webhook1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Batch Group Input": {
+      "main": [
+        [
+          {
+            "node": "Set Batch Group Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Batch Group Prompt": {
+      "main": [
+        [
+          {
+            "node": "Kipu LLM Webhook2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kipu LLM Webhook2": {
+      "main": [
+        [
+          {
+            "node": "Kipu LLM Usage2",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Parse Batch Grouping",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kipu LLM Usage1": {
+      "main": [
+        []
+      ]
+    },
+    "Parse Batch Grouping": {
+      "main": [
+        [
+          {
+            "node": "Summarize Batch Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "4d6fff5d-655f-494e-8b46-7e4cf82b55a5",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "52593113cc94089cd75ae3f96772feead566141362fb1a394622a12d4e4e1f80"
+  },
+  "id": "CMUNuQXw4KzETf58",
+  "tags": []
+}
