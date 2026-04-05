@@ -1,0 +1,1697 @@
+{
+  "name": "Zendesk Metrics - Kipu Sync",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "zendesk-metrics-preview",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "3da8239e-cebb-47ed-bef2-3757e335375f",
+      "name": "Webhook - Preview",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        384,
+        960
+      ],
+      "webhookId": "99db3565-a4c3-4e91-afbf-1a6d88813dcf"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json.body || $json;\nconst formId = body.form_id;\nconst formName = body.form_name || null;\nconst dateFrom = body.date_from;\nconst dateTo = body.date_to;\nconst limit = Number(body.limit || 5);\n\nif (!formId || !dateFrom || !dateTo) {\n  throw new Error('form_id, date_from, and date_to are required');\n}\n\nconst query = `type:ticket ticket_form_id:${formId} created>${dateFrom} created<${dateTo} custom_field_1260824167549:support_`;\n\nreturn [{\n  json: {\n    form_id: formId,\n    form_name: formName,\n    date_from: dateFrom,\n    date_to: dateTo,\n    limit,\n    zendesk_query: query\n  }\n}];"
+      },
+      "id": "76681ff4-86c1-4a1b-9e3f-349e4ea53198",
+      "name": "Prepare Preview Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        624,
+        960
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://kipuhealth.zendesk.com/api/v2/search.json",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "zendeskApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "query",
+              "value": "={{ $json.zendesk_query }}"
+            },
+            {
+              "name": "per_page",
+              "value": "=1"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "70c4ed81-f91c-4b77-9fc9-a09d2df5cab5",
+      "name": "Zendesk - Preview Count",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        896,
+        960
+      ],
+      "credentials": {
+        "zendeskApi": {
+          "id": "Nd6nYzUYdeDBS3Gj",
+          "name": "Equinox Zendesk Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const req = $('Prepare Preview Request').first().json;\nconst res = $json;\nreturn [{ json: { source: 'zendesk', filters: { form_id: req.form_id, form_name: req.form_name, date_from: req.date_from, date_to: req.date_to, query_used: req.zendesk_query }, total_found: res.count ?? 0 } }];"
+      },
+      "id": "78a7b1cc-6fb7-44f4-9fd9-1576d4d0690c",
+      "name": "Build Preview Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1152,
+        960
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "eb02d31d-30f5-41e8-b367-b88e11ac6106",
+      "name": "Respond - Preview",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1392,
+        960
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "zendesk-metrics-sync-forms",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "ab0fd541-578c-48be-99f5-b58be9f9136e",
+      "name": "Webhook - Sync Forms",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        384,
+        96
+      ],
+      "webhookId": "aaadccde-adda-4b60-935f-33e4b083d001"
+    },
+    {
+      "parameters": {
+        "url": "https://kipuhealth.zendesk.com/api/v2/ticket_forms.json",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "zendeskApi",
+        "options": {}
+      },
+      "id": "fcfeb490-90cf-4e28-94d2-1c7ab1c54cd2",
+      "name": "Zendesk Ticket Forms Pull",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        624,
+        96
+      ],
+      "credentials": {
+        "zendeskApi": {
+          "id": "Nd6nYzUYdeDBS3Gj",
+          "name": "Equinox Zendesk Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const forms = $json.ticket_forms || [];\nreturn forms.map(f => ({ json: { form_id: f.id ?? null, form_name: f.name ?? null } }));"
+      },
+      "id": "9e450efe-5da9-47b7-9be1-1293396b44be",
+      "name": "Build Ticket Form Rows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        864,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $input.all().map(i => i.json);\nreturn [{ json: { rows_json: JSON.stringify(rows), row_count: rows.length } }];"
+      },
+      "id": "23e8635e-9f44-4080-9042-4a61fafaae1b",
+      "name": "Pack Form Rows JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO zendesk_ticket_forms_staging (form_id, form_name)\nSELECT x.form_id, x.form_name\nFROM jsonb_to_recordset('{{ $json.rows_json }}'::jsonb) AS x(\n  form_id bigint,\n  form_name text\n)\nON CONFLICT (form_id) DO UPDATE SET\n  form_name = EXCLUDED.form_name,\n  fetched_at = now();",
+        "options": {}
+      },
+      "id": "1b5935ba-3abe-46b8-8f2f-19fc9d7014c5",
+      "name": "Postgres - Upsert Forms",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1376,
+        96
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "XjgfokqBkBtAIKkz",
+          "name": "Equinox Supabase - Zendesk Ticket Metrics"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const count = $('Pack Form Rows JSON').first().json.row_count || 0;\nreturn [{ json: { status: 'ok', forms_synced: count } }];"
+      },
+      "id": "79f04ce9-20c6-4d95-a600-184c4bae2a8c",
+      "name": "Build Forms Sync Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1616,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "d5412991-f545-49ee-9fc8-986d95580649",
+      "name": "Respond - Sync Forms",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1856,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "zendesk-metrics-sync-users",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "78e14314-5d08-4349-98d9-b2473651c4ce",
+      "name": "Webhook - Sync Users",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        384,
+        448
+      ],
+      "webhookId": "8651fc03-7baf-4e03-9f99-986a8cc887ba"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $getWorkflowStaticData('global');\ndata.users_pages_loaded = 0;\ndata.users_rows_loaded = 0;\nreturn [{ json: { url: 'https://kipuhealth.zendesk.com/api/v2/users.json?role[]=agent&page=1&per_page=100' } }];"
+      },
+      "id": "d1358858-dd79-4a47-b31c-c76fb93105c5",
+      "name": "Init Users Sync",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        624,
+        448
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "zendeskApi",
+        "options": {}
+      },
+      "id": "03a454fe-3fcb-4e2b-9892-10efb9e6375d",
+      "name": "Fetch Users Page",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        864,
+        448
+      ],
+      "credentials": {
+        "zendeskApi": {
+          "id": "Nd6nYzUYdeDBS3Gj",
+          "name": "Equinox Zendesk Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const users = $json.users || [];\nreturn users.map(u => ({ json: { zendesk_user_id: u.id ?? null, agent_name: u.name ?? null, email: u.email ?? null, default_group_id: u.default_group_id ?? null, active: u.active ?? null } }));"
+      },
+      "id": "3fdf0382-a8c1-47ac-b3a4-ec17c266fb7d",
+      "name": "Build User Rows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        448
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $input.all().map(i => i.json);\nreturn [{ json: { rows_json: JSON.stringify(rows), row_count: rows.length } }];"
+      },
+      "id": "e215d2b5-3655-4524-9d92-371fe63e9a79",
+      "name": "Pack User Rows JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1376,
+        448
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO zendesk_users_staging (zendesk_user_id, agent_name, email, default_group_id, active)\nSELECT x.zendesk_user_id, x.agent_name, x.email, x.default_group_id, x.active\nFROM jsonb_to_recordset('{{ $json.rows_json }}'::jsonb) AS x(\n  zendesk_user_id bigint,\n  agent_name text,\n  email text,\n  default_group_id bigint,\n  active boolean\n)\nON CONFLICT (zendesk_user_id) DO UPDATE SET\n  agent_name = EXCLUDED.agent_name,\n  email = EXCLUDED.email,\n  default_group_id = EXCLUDED.default_group_id,\n  active = EXCLUDED.active,\n  fetched_at = now();",
+        "options": {}
+      },
+      "id": "fbe77d10-21ec-4448-9ced-6fdbffd3343d",
+      "name": "Postgres - Upsert Users",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1616,
+        448
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "XjgfokqBkBtAIKkz",
+          "name": "Equinox Supabase - Zendesk Ticket Metrics"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $getWorkflowStaticData('global');\nconst body = $('Fetch Users Page').first().json;\nconst rowCount = $('Pack User Rows JSON').first().json.row_count || 0;\ndata.users_pages_loaded = (data.users_pages_loaded || 0) + 1;\ndata.users_rows_loaded = (data.users_rows_loaded || 0) + rowCount;\nreturn [{ json: { next_page: body.next_page || null, page_row_count: rowCount, pages_loaded: data.users_pages_loaded, total_rows_loaded: data.users_rows_loaded, end_of_stream: !body.next_page } }];"
+      },
+      "id": "ee49c1c5-b03f-4c5e-8d31-dbcf9a413f19",
+      "name": "Build Users Page State",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1872,
+        448
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "user-more",
+              "leftValue": "={{ $json.end_of_stream }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c9528292-6eb5-4eb0-88ca-2c22b8695c62",
+      "name": "More User Pages?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2128,
+        448
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { url: $json.next_page } }];"
+      },
+      "id": "4d2c42d7-b7a6-49e0-9d02-6416993060d8",
+      "name": "Next Users Page URL",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2368,
+        368
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $getWorkflowStaticData('global');\nreturn [{ json: { status: 'ok', pages_loaded: data.users_pages_loaded || 0, users_synced: data.users_rows_loaded || 0 } }];"
+      },
+      "id": "58c64afe-a189-48e9-88a5-2cf1b67a4aab",
+      "name": "Build Users Sync Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2368,
+        528
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "9d922e98-367d-4c8b-9438-34a3698c654f",
+      "name": "Respond - Sync Users",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        2608,
+        528
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "zendesk-metrics-run-sync-v2",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "6b9ad08d-397a-41a3-91ac-1f5b93099d98",
+      "name": "Webhook - Run Sync",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        416,
+        1392
+      ],
+      "webhookId": "11e247b1-9c5f-4611-a04f-0b8d5d5ca4ed"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json.body || $json || {};\n\nconst data = $getWorkflowStaticData('global');\ndata.sync_pages_loaded = 0;\ndata.sync_input_rows = 0;\ndata.sync_upserted_rows = 0;\ndata.sync_refreshed_form_rows = 0;\ndata.sync_refreshed_agent_rows = 0;\n\nconst formId = body.form_id;\nconst formName = body.form_name || null;\nconst dateFrom = body.date_from;\nconst dateTo = body.date_to;\n\nif (!formId || !dateFrom || !dateTo) {\n  throw new Error('form_id, date_from, and date_to are required');\n}\n\nconst zendeskQuery = `type:ticket ticket_form_id:${formId} created>${dateFrom} created<${dateTo} custom_field_1260824167549:support_`;\n\nconst url = `https://kipuhealth.zendesk.com/api/v2/search.json?query=${encodeURIComponent(zendeskQuery)}&page=1&per_page=100&sort_by=created_at&sort_order=asc`;\n\nreturn [{\n  json: {\n    form_id: formId,\n    form_name: formName,\n    date_from: dateFrom,\n    date_to: dateTo,\n    zendesk_query: zendeskQuery,\n    url\n  }\n}];"
+      },
+      "id": "85088980-dd44-41c6-993a-8cec3275728b",
+      "name": "Code - Prepare Run Sync Search",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        656,
+        1392
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "zendeskApi",
+        "options": {}
+      },
+      "id": "c2050db8-d526-47d7-a53d-035734cc1de7",
+      "name": "HTTP - Search Tickets Page",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        896,
+        1392
+      ],
+      "credentials": {
+        "zendeskApi": {
+          "id": "Nd6nYzUYdeDBS3Gj",
+          "name": "Equinox Zendesk Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const req = $('Code - Prepare Run Sync Search').first().json || {};\nconst body = $('Webhook - Run Sync').first().json.body || $('Webhook - Run Sync').first().json || {};\nconst results = Array.isArray($json.results) ? $json.results : [];\nconst ticketIds = results.map(r => r.id).filter(id => id != null);\n\nconst data = $getWorkflowStaticData('global');\nconst currentPage = (data.sync_pages_loaded || 0) + 1;  // increments each loop via Code - Accumulate Sync Totals\n\nconst totalPages = Math.ceil(($json.count || 0) / 100);  // count = total from Zendesk search\n\nconst runId =\n  body.run_id ||\n  `ticket-sync-${new Date().toISOString().replace(/[:.]/g, '-')}`;\n\nreturn [{\n  json: {\n    run_id: runId,\n    current_batch: currentPage,\n    total_batches: totalPages,\n    expected_count: ticketIds.length,\n    form_id: req.form_id,\n    form_name: req.form_name,\n    date_from: req.date_from,\n    date_to: req.date_to,\n    zendesk_query: req.zendesk_query,\n    ticket_ids: ticketIds,\n    ids_csv: ticketIds.join(','),\n    batch_count: ticketIds.length,\n    total_found: $json.count ?? 0,\n    next_page_url: $json.next_page || null,\n    end_of_stream: !$json.next_page\n  }\n}];\n"
+      },
+      "id": "9bb880e4-2396-4ece-867f-b472dad643a7",
+      "name": "Code - Prepare Batch IDs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1136,
+        1392
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ `https://kipuhealth.zendesk.com/api/v2/tickets/show_many.json?ids=${$json.ids_csv}&include=slas` }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "zendeskApi",
+        "options": {}
+      },
+      "id": "770eebb8-0fb0-44ee-8c0a-da7101978d2b",
+      "name": "HTTP - Fetch Ticket Batch",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1376,
+        1392
+      ],
+      "credentials": {
+        "zendeskApi": {
+          "id": "Nd6nYzUYdeDBS3Gj",
+          "name": "Equinox Zendesk Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const batch = $('Code - Prepare Batch IDs').first().json || {};\nconst tickets = Array.isArray($json.tickets) ? $json.tickets : [];\n\nreturn tickets.map(ticket => ({\n  json: {\n    ticket,\n    form_name: batch.form_name ?? null\n  }\n}));\n"
+      },
+      "id": "82f61d06-0893-4659-9661-3d67152772e0",
+      "name": "Code - Expand Tickets For Metrics",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1616,
+        1392
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ `https://kipuhealth.zendesk.com/api/v2/tickets/${$json.ticket.id}/metrics.json` }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "zendeskApi",
+        "options": {}
+      },
+      "id": "d0da640e-1ce9-40e1-a732-d70ec857b489",
+      "name": "HTTP - Fetch Ticket Metrics",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2000,
+        1456
+      ],
+      "credentials": {
+        "zendeskApi": {
+          "id": "Nd6nYzUYdeDBS3Gj",
+          "name": "Equinox Zendesk Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "with input_payload as (\n  select\n   '{{ ($json.ticket_rows_json || \"[]\").replace(/'/g, \"''\") }}'::jsonb as rows_json,\n    {{ $json.input_rows || $json.batch_count || 0 }}::integer as batch_count,\n    {{ $json.end_of_stream ? 'true' : 'false' }}::boolean as end_of_stream,\n    {{ $json.next_page_url ? `'${String($json.next_page_url).replace(/'/g, \"''\")}'` : 'null' }}::text as next_page_url\n),\nparsed_rows as (\n  select\n    (row->>'ticket_id')::bigint as ticket_id,\n    (row->>'ticket_created_at')::timestamptz as ticket_created_at,\n    (row->>'ticket_updated_at')::timestamptz as ticket_updated_at,\n    (row->>'ticket_solved_at')::timestamptz as ticket_solved_at,\n    row->>'status' as status,\n    row->>'channel' as channel,\n    (row->>'form_id')::bigint as form_id,\n    row->>'form_name' as form_name,\n    (row->>'assignee_id')::bigint as assignee_id,\n    (row->>'group_id')::bigint as group_id,\n    row->>'csat_score' as csat_score,\n    (row->>'first_reply_time_business_minutes')::integer as first_reply_time_business_minutes,\n    (row->>'next_reply_time_business_minutes')::integer as next_reply_time_business_minutes,\n    (row->>'pausable_update_time_business_minutes')::integer as pausable_update_time_business_minutes,\n    (row->>'requester_wait_time_business_minutes')::integer as requester_wait_time_business_minutes,\n    (row->>'full_resolution_time_business_minutes')::integer as full_resolution_time_business_minutes,\n    (row->>'one_business_day_solve_flag')::boolean as one_business_day_solve_flag,\n    (row->>'sla_breached_flag')::boolean as sla_breached_flag,\n    (row->>'article_linked_flag')::boolean as article_linked_flag,\n    (row->>'missed_call_flag')::boolean as missed_call_flag,\n    coalesce((row->>'ticket_count')::integer, 1) as ticket_count\n  from input_payload,\n  jsonb_array_elements(rows_json) as row\n),\nupserted as (\n  insert into public.support_ticket_metrics_fact (\n    ticket_id,\n    ticket_created_at,\n    ticket_updated_at,\n    ticket_solved_at,\n    status,\n    channel,\n    form_id,\n    form_name,\n    assignee_id,\n    group_id,\n    csat_score,\n    first_reply_time_business_minutes,\n    next_reply_time_business_minutes,\n    pausable_update_time_business_minutes,\n    requester_wait_time_business_minutes,\n    full_resolution_time_business_minutes,\n    one_business_day_solve_flag,\n    sla_breached_flag,\n    article_linked_flag,\n    missed_call_flag,\n    ticket_count,\n    synced_at\n  )\n  select\n    ticket_id,\n    ticket_created_at,\n    ticket_updated_at,\n    ticket_solved_at,\n    status,\n    channel,\n    form_id,\n    form_name,\n    assignee_id,\n    group_id,\n    csat_score,\n    first_reply_time_business_minutes,\n    next_reply_time_business_minutes,\n    pausable_update_time_business_minutes,\n    requester_wait_time_business_minutes,\n    full_resolution_time_business_minutes,\n    one_business_day_solve_flag,\n    sla_breached_flag,\n    article_linked_flag,\n    missed_call_flag,\n    ticket_count,\n    now()\n  from parsed_rows\n  on conflict (ticket_id) do update set\n    ticket_created_at = excluded.ticket_created_at,\n    ticket_updated_at = excluded.ticket_updated_at,\n    ticket_solved_at = excluded.ticket_solved_at,\n    status = excluded.status,\n    channel = excluded.channel,\n    form_id = excluded.form_id,\n    form_name = excluded.form_name,\n    assignee_id = excluded.assignee_id,\n    group_id = excluded.group_id,\n    csat_score = excluded.csat_score,\n    first_reply_time_business_minutes = excluded.first_reply_time_business_minutes,\n    next_reply_time_business_minutes = excluded.next_reply_time_business_minutes,\n    pausable_update_time_business_minutes = excluded.pausable_update_time_business_minutes,\n    requester_wait_time_business_minutes = excluded.requester_wait_time_business_minutes,\n    full_resolution_time_business_minutes = excluded.full_resolution_time_business_minutes,\n    one_business_day_solve_flag = excluded.one_business_day_solve_flag,\n    sla_breached_flag = excluded.sla_breached_flag,\n    article_linked_flag = excluded.article_linked_flag,\n    missed_call_flag = excluded.missed_call_flag,\n    ticket_count = excluded.ticket_count,\n    synced_at = now()\n  returning ticket_id\n),\nprogress as (\n  insert into public.sync_progress (\n    run_id,\n    flow_name,\n    status,\n    current_batch,\n    total_batches,\n    batch_size,\n    updated_rows,\n    note,\n    updated_at\n  )\n  values (\n    '{{ (($json.run_id || \"ticket-sync-run\") + \"\").replace(/'/g, \"''\") }}',\n    'ticket_sync',\n    'running',\n    {{ $json.current_batch || 0 }},\n    {{ $json.total_batches || 0 }},\n    {{ $json.expected_count || $json.batch_count || 0 }},\n    (select count(*) from upserted),\n    '{{ ((`Processed ticket sync chunk ${$json.current_batch || 0} of ${$json.total_batches || 0}`) + \"\").replace(/'/g, \"''\") }}',\n    now()\n  )\n  on conflict (run_id) do update set\n    flow_name = excluded.flow_name,\n    status = excluded.status,\n    current_batch = excluded.current_batch,\n    total_batches = excluded.total_batches,\n    batch_size = excluded.batch_size,\n    updated_rows = coalesce(public.sync_progress.updated_rows, 0) + excluded.updated_rows,\n    note = excluded.note,\n    updated_at = now()\n  returning id\n)\nselect\n  (select count(*) from upserted) as upserted_rows,\n  (select count(*) from parsed_rows) as parsed_rows,\n  (select batch_count from input_payload) as batch_count,\n  (select end_of_stream from input_payload) as end_of_stream,\n  (select next_page_url from input_payload) as next_page_url;",
+        "options": {}
+      },
+      "id": "25b6599a-d066-472c-b602-23884ded2589",
+      "name": "Postgres - Upsert Tickets",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2528,
+        1376
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "XjgfokqBkBtAIKkz",
+          "name": "Equinox Supabase - Zendesk Ticket Metrics"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "sync-more",
+              "leftValue": "={{ $json.end_of_stream }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "1413202e-3ae9-48ef-84f5-a693041dbbfc",
+      "name": "More Sync Pages?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2896,
+        1376
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 2
+      },
+      "id": "06059fc3-c220-4475-b5e0-b6859e6767a1",
+      "name": "Wait - Between Sync Batches",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        3152,
+        1536
+      ],
+      "webhookId": "538d0804-15b0-4859-8a0f-2a2ac212f45e"
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { url: $json.next_page_url } }];"
+      },
+      "id": "4029c5f2-e548-4636-92b4-b83bf35d5865",
+      "name": "Code - Next Search Page URL",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3408,
+        1536
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $('Webhook - Run Sync').first().json.body || $('Webhook - Run Sync').first().json || {};\nconst data = $getWorkflowStaticData('global');\n\nconst searchItems = $('HTTP - Search Tickets Page').all();\n\nlet totalFound = 0;\nfor (const item of searchItems) {\n  if (item.json?.count != null) {\n    totalFound = Number(item.json.count);\n    break;\n  }\n}\n\nconst totalBatches = Math.ceil(totalFound / 100);\n\nreturn [{\n  json: {\n    status: 'success',\n    run_id: body.run_id || null,\n    form_id: body.form_id ?? null,\n    form_name: body.form_name ?? null,\n    date_from: body.date_from ?? null,\n    date_to: body.date_to ?? null,\n    total_found: totalFound,\n    total_batches: totalBatches,\n    pages_loaded: data.sync_pages_loaded || 0,\n    input_rows: data.sync_input_rows || 0,\n    upserted_rows: data.sync_upserted_rows || 0\n  }\n}];\n"
+      },
+      "id": "0a8e8921-3213-41b6-a79c-7faa7b87c1b0",
+      "name": "Code - Build Sync Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3600,
+        1392
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "df834a6c-bf9e-4a5d-8504-960a7b48778d",
+      "name": "Respond - Run Sync",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        4048,
+        1392
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const batch = $('Code - Prepare Batch IDs').first().json || {};\n\nconst tickets = Array.isArray($('HTTP - Fetch Ticket Batch').first().json.tickets)\n  ? $('HTTP - Fetch Ticket Batch').first().json.tickets\n  : [];\n\nconst metricItems = $('HTTP - Fetch Ticket Metrics').all();\n\nconst metricsByTicketId = {};\nfor (const item of metricItems) {\n  const metric = item.json?.ticket_metric || {};\n  if (metric.ticket_id != null) {\n    metricsByTicketId[String(metric.ticket_id)] = metric;\n  }\n}\n\nconst formName = batch.form_name ?? null;\n\nconst ARTICLE_LINKED_FIELD_IDS = [18158428639387, 25171038337691];\n\nfunction getCustomFieldValue(ticket, fieldIds) {\n  const fields = Array.isArray(ticket.custom_fields) ? ticket.custom_fields : [];\n  for (const fieldId of fieldIds) {\n    const match = fields.find(f => Number(f.id) === Number(fieldId));\n    if (match && match.value !== undefined && match.value !== null && match.value !== '') {\n      return match.value;\n    }\n  }\n  return null;\n}\n\nfunction hasAnyTag(ticket, tagList) {\n  const tags = Array.isArray(ticket.tags) ? ticket.tags : [];\n  return tagList.some(tag => tags.includes(tag));\n}\n\nfunction normalizeBoolean(value, trueValues = [], falseValues = []) {\n  if (value === true) return true;\n  if (value === false) return false;\n  if (value == null) return null;\n  const v = String(value).toLowerCase().trim();\n  if (['yes', 'true', '1'].includes(v)) return true;\n  if (['no', 'false', '0'].includes(v)) return false;\n  if (trueValues.map(x => String(x).toLowerCase()).includes(v)) return true;\n  if (falseValues.map(x => String(x).toLowerCase()).includes(v)) return false;\n  return null;\n}\n\nfunction getSlaBreachedFlag(ticket, metric) {\n  const policyMetrics = Array.isArray(ticket.slas?.policy_metrics)\n    ? ticket.slas.policy_metrics : [];\n  if (!policyMetrics.length) return null;\n\n  const solvedAt = metric?.solved_at ? new Date(metric.solved_at) : null;\n\n  return policyMetrics.some(m => {\n    if (!m.breach_at) return false;\n    if (solvedAt) {\n      return new Date(m.breach_at) < solvedAt;\n    }\n    return m.stage === 'breached';\n  });\n}\n\nconst rows = tickets.map(ticket => {\n  const metric = metricsByTicketId[String(ticket.id)] || {};\n  const resolution = metric.full_resolution_time_in_minutes?.business ?? null;\n\n  const articleLinkedRaw = getCustomFieldValue(ticket, ARTICLE_LINKED_FIELD_IDS);\n  let articleLinkedFlag = normalizeBoolean(\n    articleLinkedRaw,\n    ['kcs_linked_yes', 'kcslinked_yes'],\n    ['kcs_linked_no', 'kcslinked_no']\n  );\n  if (articleLinkedFlag == null) {\n    if (hasAnyTag(ticket, ['kcs_linked_yes', 'kcslinked_yes'])) {\n      articleLinkedFlag = true;\n    } else if (hasAnyTag(ticket, ['kcs_linked_no', 'kcslinked_no'])) {\n      articleLinkedFlag = false;\n    }\n  }\n\n  return {\n    ticket_id: ticket.id ?? null,\n    ticket_created_at: ticket.created_at ?? null,\n    ticket_updated_at: ticket.updated_at ?? null,\n    ticket_solved_at: metric.solved_at ?? ticket.solved_at ?? null,\n    status: ticket.status ?? null,\n    channel: ticket.via?.channel ?? null,\n    form_id: ticket.ticket_form_id ?? null,\n    form_name: formName,\n    assignee_id: ticket.assignee_id ?? null,\n    group_id: ticket.group_id ?? null,\n    csat_score: ticket.satisfaction_rating?.score ?? null,\n    first_reply_time_business_minutes: metric.reply_time_in_minutes?.business ?? null,\n    next_reply_time_business_minutes: null,\n    pausable_update_time_business_minutes: metric.on_hold_time_in_minutes?.business ?? null,\n    requester_wait_time_business_minutes: metric.requester_wait_time_in_minutes?.business ?? null,\n    full_resolution_time_business_minutes: resolution,\n    one_business_day_solve_flag: resolution != null ? resolution <= 480 : null,\n    sla_breached_flag: getSlaBreachedFlag(ticket, metric),\n    article_linked_flag: articleLinkedFlag,\n    missed_call_flag: null,\n    ticket_count: 1\n  };\n}).filter(row => row.ticket_id != null);\n\nreturn [{\n  json: {\n    run_id: batch.run_id || null,\n    current_batch: Number(batch.current_batch || 0),\n    total_batches: Number(batch.total_batches || 0),\n    expected_count: Number(batch.expected_count || rows.length),\n    ticket_rows_json: JSON.stringify(rows),\n    ticket_count: rows.length,\n    input_rows: rows.length,\n    batch_count: rows.length,\n    next_page_url: batch.next_page_url || null,\n    end_of_stream: batch.end_of_stream === true\n  }\n}];\n"
+      },
+      "id": "1daa0452-5297-4b00-88df-7a8d1fb1097d",
+      "name": "Code - Build Batch Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2336,
+        1376
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://kipuhealth.zendesk.com/api/v2/search.json",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "zendeskApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "query",
+              "value": "={{ $json.zendesk_query }}"
+            },
+            {
+              "name": "per_page",
+              "value": "=100"
+            },
+            {
+              "name": "page",
+              "value": "={{ $('Webhook - Preview').first().json.body.page \n\n 1 }}"
+            },
+            {
+              "name": "sort_by",
+              "value": "created_at"
+            },
+            {
+              "name": "sort_order",
+              "value": "asc"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "f70b92cd-62f8-491a-aece-2ffb2ab292e1",
+      "name": "Zendesk - Preview Page IDs",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        912,
+        1152
+      ],
+      "credentials": {
+        "zendeskApi": {
+          "id": "Nd6nYzUYdeDBS3Gj",
+          "name": "Equinox Zendesk Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const results = Array.isArray($json.results) ? $json.results : [];\n\nreturn [{\n  json: {\n    ticket_ids: results.map(r => r.id).filter(id => id != null)\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        1152
+      ],
+      "id": "56440aac-158b-49ae-bebc-cd0ff5ce0cb0",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "url": "=https://kipuhealth.zendesk.com/api/v2/tickets/show_many.json?ids=568441&include=slas",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "zendeskApi",
+        "options": {}
+      },
+      "id": "293bd848-715c-415f-9510-172e69747ca7",
+      "name": "HTTP - Fetch Ticket Metrics - Single",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        384,
+        2480
+      ],
+      "credentials": {
+        "zendeskApi": {
+          "id": "Nd6nYzUYdeDBS3Gj",
+          "name": "Equinox Zendesk Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://kipuhealth.zendesk.com/api/v2/search.json",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "zendeskApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "query",
+              "value": "type:ticket ticket_form_id:32729757998235 created>2025-04-01 created<2025-12-01 custom_field_1260824167549:support_"
+            },
+            {
+              "name": "per_page",
+              "value": "1"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "43e0a820-a241-4e5b-900b-0487a15560b8",
+      "name": "HTTP - Count 12mo Support Tickets",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        736,
+        2512
+      ],
+      "credentials": {
+        "zendeskApi": {
+          "id": "Nd6nYzUYdeDBS3Gj",
+          "name": "Equinox Zendesk Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://kipuhealth.zendesk.com/api/v2/incremental/tickets/cursor.json",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "zendeskApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "start_time",
+              "value": "1769644800"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "63d3d231-ea5b-464e-a416-842e467ae22e",
+      "name": "HTTP - Incremental Tickets Test",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1104,
+        2496
+      ],
+      "credentials": {
+        "zendeskApi": {
+          "id": "Nd6nYzUYdeDBS3Gj",
+          "name": "Equinox Zendesk Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "=https://kipuhealth.zendesk.com/api/v2/ticket_fields.json",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "zendeskApi",
+        "options": {}
+      },
+      "id": "aa5c16ff-c81d-46b3-8db3-78a594c746e5",
+      "name": "HTTP - Zendesk List All Fields",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        400,
+        2736
+      ],
+      "credentials": {
+        "zendeskApi": {
+          "id": "Nd6nYzUYdeDBS3Gj",
+          "name": "Equinox Zendesk Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const fields = Array.isArray($json.ticket_fields) ? $json.ticket_fields : [];\n\nreturn fields.map(f => ({\n  json: {\n    id: f.id,\n    title: f.title,\n    type: f.type,\n    tag: f.tag ?? null,\n    active: f.active,\n    required: f.required ?? null,\n    custom_field_options: Array.isArray(f.custom_field_options)\n      ? f.custom_field_options.map(o => ({\n          name: o.name,\n          value: o.value,\n          default: o.default ?? false\n        }))\n      : null\n  }\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        608,
+        2736
+      ],
+      "id": "4c20d55c-b302-45c6-84b0-220484eae5ee",
+      "name": "Code - Shrink Ticket Fields"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $getWorkflowStaticData('global');\nconst row = $json || {};\n\ndata.sync_pages_loaded = (data.sync_pages_loaded || 0) + 1;\n\ndata.sync_input_rows = (data.sync_input_rows || 0) + Number(row.parsed_rows || row.input_rows || 0);\n\ndata.sync_upserted_rows = (data.sync_upserted_rows || 0) + Number(row.upserted_rows || 0);\n\nreturn [{\n  json: {\n    input_rows: Number(row.input_rows || 0),\n    upserted_rows: Number(row.upserted_rows || 0),\n    batch_count: Number(row.batch_count || 0),\n    end_of_stream: row.end_of_stream === true,\n    next_page_url: row.next_page_url || null\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2720,
+        1376
+      ],
+      "id": "ec3cb6c1-007e-42cc-be5d-1953d412305d",
+      "name": "Code - Accumulate Sync Totals"
+    },
+    {
+      "parameters": {
+        "batchSize": 5,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1824,
+        1392
+      ],
+      "id": "7f3b8407-962d-4944-a82c-f68862ac84d7",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {
+        "amount": 1
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2160,
+        1456
+      ],
+      "id": "efc83fa5-cc6d-44bf-ab33-fae8c1130268",
+      "name": "Wait",
+      "webhookId": "ebbfbdfc-a8bf-4dec-b4fd-d589e72e9e36"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select ticket_id\nfrom public.support_ticket_metrics_fact\nwhere ticket_id is not null\n  and ticket_created_at >= '{{ $json.date_from }}'::date\n  and ticket_created_at < ('{{ $json.date_to }}'::date + interval '1 day')\norder by ticket_id;\n",
+        "options": {}
+      },
+      "id": "2c74a925-78b7-4757-82bc-24da331cf947",
+      "name": "Postgres - Load SLA Ticket Batches",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        880,
+        2048
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "XjgfokqBkBtAIKkz",
+          "name": "Equinox Supabase - Zendesk Ticket Metrics"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "with input_payload as (\n  select\n    '{{ ($json.ticket_rows_json || \"[]\").replace(/'/g, \"''\") }}'::jsonb as rows_json,\n    '{{ (($json.run_id || \"sla-backfill-run\") + \"\").replace(/'/g, \"''\") }}'::text as run_id,\n    {{ $json.batch_number || 0 }}::integer as batch_number,\n    {{ $json.total_batches || 0 }}::integer as total_batches,\n    {{ $json.batch_size || 0 }}::integer as batch_size\n),\nparsed_rows as (\n  select\n    (row->>'ticket_id')::bigint as ticket_id,\n    (row->>'sla_breached_flag')::boolean as sla_breached_flag\n  from input_payload,\n  jsonb_array_elements(rows_json) as row\n),\nupdated as (\n  update public.support_ticket_metrics_fact f\n  set\n    sla_breached_flag = p.sla_breached_flag,\n    synced_at = now()\n  from parsed_rows p\n  where f.ticket_id = p.ticket_id\n  returning f.ticket_id\n),\nprogress as (\n  insert into public.sync_progress (\n    run_id, flow_name, status, current_batch, total_batches,\n    batch_size, updated_rows, note, updated_at\n  )\n  select\n    run_id, 'sla_backfill', 'running',\n    batch_number, total_batches, batch_size,\n    (select count(*) from updated),\n    ('Processed SLA batch ' || batch_number || ' of ' || total_batches),\n    now()\n  from input_payload\n  on conflict (run_id) do update set\n    flow_name = excluded.flow_name,\n    status = excluded.status,\n    current_batch = excluded.current_batch,\n    total_batches = excluded.total_batches,\n    batch_size = excluded.batch_size,\n    updated_rows = coalesce(public.sync_progress.updated_rows, 0) + excluded.updated_rows,\n    note = excluded.note,\n    updated_at = now()\n  returning id\n)\nselect\n  (select count(*) from parsed_rows) as parsed_rows,\n  (select count(*) from updated) as updated_rows;\n",
+        "options": {}
+      },
+      "id": "282b1e4f-2bfb-47c7-8e08-5b87c87cbccb",
+      "name": "Postgres - Update SLA Flags",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2000,
+        2112
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "XjgfokqBkBtAIKkz",
+          "name": "Equinox Supabase - Zendesk Ticket Metrics"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const BATCH_SIZE = 100;\n\nconst ids = $input.all()\n  .map(item => item.json.ticket_id)\n  .filter(id => id !== null && id !== undefined);\n\nconst runId = $('Code - Parse Backfill Params').first().json.run_id;\nconst totalBatches = Math.ceil(ids.length / BATCH_SIZE);\nconst batches = [];\n\nfor (let i = 0; i < ids.length; i += BATCH_SIZE) {\n  const batchIds = ids.slice(i, i + BATCH_SIZE);\n  batches.push({\n    json: {\n      run_id: runId,\n      batch_number: Math.floor(i / BATCH_SIZE) + 1,\n      total_batches: totalBatches,\n      batch_size: batchIds.length,\n      ids_csv: batchIds.join(',')\n    }\n  });\n}\n\nreturn batches;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1136,
+        2048
+      ],
+      "id": "051fe73e-2967-4639-a1fd-46154c1a2219",
+      "name": "Code - Batch Ticket IDs"
+    },
+    {
+      "parameters": {
+        "jsCode": "const ticketBatch = $('HTTP: Fetch Ticket Batch with SLAs').first().json || {};\nconst tickets = Array.isArray(ticketBatch.tickets) ? ticketBatch.tickets : [];\nconst batch = $('Loop Over SLA Batches').first().json || {};\n\nfunction getSlaBreachedFlag(ticket) {\n  const policyMetrics = Array.isArray(ticket.slas?.policy_metrics)\n    ? ticket.slas.policy_metrics : [];\n  if (!policyMetrics.length) return null;\n\n  const isClosed = ticket.status === 'closed' || ticket.status === 'solved';\n  const updatedAt = ticket.updated_at ? new Date(ticket.updated_at) : null;\n\n  return policyMetrics.some(m => {\n    if (!m.breach_at) return false;\n    if (isClosed && updatedAt) {\n      return new Date(m.breach_at) < updatedAt;\n    }\n    return m.stage === 'breached';\n  });\n}\n\nconst rows = tickets\n  .filter(ticket => ticket.id != null)\n  .map(ticket => ({\n    ticket_id: ticket.id,\n    sla_breached_flag: getSlaBreachedFlag(ticket)\n  }));\n\nreturn [{\n  json: {\n    run_id: batch.run_id || null,\n    batch_number: Number(batch.batch_number || 0),\n    total_batches: Number(batch.total_batches || 0),\n    batch_size: Number(batch.batch_size || 0),\n    ticket_rows_json: JSON.stringify(rows),\n    row_count: rows.length\n  }\n}];\n"
+      },
+      "id": "2e0030ce-a197-4527-8dd3-0980342ae596",
+      "name": "Code - Build SLA Update Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1776,
+        2112
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1344,
+        2048
+      ],
+      "id": "20d405f5-83ef-46aa-9f82-b2ffb0e1ab77",
+      "name": "Loop Over SLA Batches"
+    },
+    {
+      "parameters": {
+        "url": "={{ `https://kipuhealth.zendesk.com/api/v2/tickets/show_many.json?ids=${$json.ids_csv}&include=slas` }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "zendeskApi",
+        "options": {}
+      },
+      "id": "77bf62f8-d163-4503-ae94-347abaeefd4d",
+      "name": "HTTP: Fetch Ticket Batch with SLAs",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1568,
+        2112
+      ],
+      "credentials": {
+        "zendeskApi": {
+          "id": "Nd6nYzUYdeDBS3Gj",
+          "name": "Equinox Zendesk Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "with incoming as (\n  select\n    '{{ (($('Webhook - Backfill').first().json.body?.run_id || \"\") + \"\").replace(/'/g, \"''\") }}'::text as run_id,\n    {{ $('Code - Batch Ticket IDs').all().length || 0 }}::integer as total_batches\n),\nmark_complete as (\n  update public.sync_progress sp\n  set\n    status = 'completed',\n    current_batch = i.total_batches,\n    total_batches = i.total_batches,\n    note = 'SLA backfill completed',\n    updated_at = now()\n  from incoming i\n  where sp.run_id = i.run_id\n  returning sp.run_id, sp.updated_rows\n)\nselect run_id, updated_rows\nfrom mark_complete;\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2320,
+        2032
+      ],
+      "id": "31771cec-efe0-4670-b304-f52f541ae3b7",
+      "name": "Postgres - Final SLA Count",
+      "credentials": {
+        "postgres": {
+          "id": "XjgfokqBkBtAIKkz",
+          "name": "Equinox Supabase - Zendesk Ticket Metrics"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "zendesk-metrics-backfill",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "91e0e6d5-fc1f-4fdd-9d02-53b05b8d7b22",
+      "name": "Webhook - Backfill",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        400,
+        2048
+      ],
+      "webhookId": "41294c02-6409-4f5c-b571-725db5df86d9"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "with final_count as (\n  select count(*) as total_rows_in_fact\n  from public.support_ticket_metrics_fact\n),\nmark_complete as (\n  insert into public.sync_progress (\n    run_id,\n    flow_name,\n    status,\n    current_batch,\n    total_batches,\n    batch_size,\n    updated_rows,\n    note,\n    updated_at\n  )\n  values (\n    '{{ (($json.run_id || \"ticket-sync-run\") + \"\").replace(/'/g, \"''\") }}',\n    'ticket_sync',\n    'completed',\n    {{ $json.total_batches || 0 }},\n    {{ $json.total_batches || 0 }},\n    0,\n    {{ $json.upserted_rows || 0 }},\n    'Ticket sync completed',\n    now()\n  )\n  on conflict (run_id) do update set\n    flow_name = excluded.flow_name,\n    status = excluded.status,\n    current_batch = excluded.current_batch,\n    total_batches = excluded.total_batches,\n    batch_size = excluded.batch_size,\n    updated_rows = public.sync_progress.updated_rows,\n    note = excluded.note,\n    updated_at = now()\n  returning id\n)\nselect\n  {{ $json.status ? `'${String($json.status).replace(/'/g, \"''\")}'` : `'success'` }}::text as status,\n  {{ $json.form_id || 'null' }}::bigint as form_id,\n  {{ $json.form_name ? `'${String($json.form_name).replace(/'/g, \"''\")}'` : 'null' }}::text as form_name,\n  {{ $json.date_from ? `'${String($json.date_from).replace(/'/g, \"''\")}'` : 'null' }}::text as date_from,\n  {{ $json.date_to ? `'${String($json.date_to).replace(/'/g, \"''\")}'` : 'null' }}::text as date_to,\n  {{ $json.total_found || 0 }}::integer as total_found,\n  {{ $json.pages_loaded || 0 }}::integer as pages_loaded,\n  {{ $json.input_rows || 0 }}::integer as input_rows,\n  {{ $json.upserted_rows || 0 }}::integer as upserted_rows,\n  (select total_rows_in_fact from final_count) as total_rows_in_fact;",
+        "options": {}
+      },
+      "id": "deb4cfb9-e2b4-466f-8260-d4f75c7097b9",
+      "name": "Postgres - Final Sync Count",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        3824,
+        1392
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "XjgfokqBkBtAIKkz",
+          "name": "Equinox Supabase - Zendesk Ticket Metrics"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"success\": true }\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        2592,
+        2032
+      ],
+      "id": "a628e93f-80df-4c75-82f7-9edd257ede2b",
+      "name": "Respond to Backfill Webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json.body || {};\n\nif (!body.date_from || !body.date_to) {\n  throw new Error('date_from and date_to are required');\n}\n\nreturn [{\n  json: {\n    run_id: body.run_id || `sla-backfill-${new Date().toISOString().replace(/[:.]/g, '-')}`,\n    date_from: body.date_from,\n    date_to: body.date_to\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        656,
+        2048
+      ],
+      "id": "82005b97-5fc3-4296-a767-981ab50eee20",
+      "name": "Code - Parse Backfill Params"
+    },
+    {
+      "parameters": {
+        "jsCode": "const tickets = $json.results || [];\n\nif (tickets.length === 0) {\n  return [{ json: { error: 'no tickets found' } }];\n}\n\nconst tagFrequency = {};\nconst customFieldSummary = {};\nconst kaTags = new Set();\n\nfor (const ticket of tickets) {\n  // Check tags - Zendesk Knowledge Capture stores linked articles as ka_ARTICLEID tags\n  const tags = ticket.tags || [];\n  for (const tag of tags) {\n    tagFrequency[tag] = (tagFrequency[tag] || 0) + 1;\n    if (tag.startsWith('ka_')) kaTags.add(tag);\n  }\n\n  // Check custom fields for any non-null values we haven't mapped yet\n  const fields = ticket.custom_fields || [];\n  for (const f of fields) {\n    if (f.value !== null && f.value !== '' && f.value !== false) {\n      if (!customFieldSummary[f.id]) {\n        customFieldSummary[f.id] = {\n          field_id: f.id,\n          sample_values: new Set()\n        };\n      }\n      customFieldSummary[f.id].sample_values.add(String(f.value).slice(0, 80));\n    }\n  }\n}\n\n// Identify any tags that look like KB/article references\nconst articleRelatedTags = Object.entries(tagFrequency)\n  .filter(([tag]) =>\n    tag.startsWith('ka_') ||\n    tag.includes('kb_') ||\n    tag.includes('article') ||\n    tag.includes('knowledge')\n  )\n  .map(([tag, count]) => ({ tag, count }))\n  .sort((a, b) => b.count - a.count);\n\n// Serialize custom field summary\nconst fieldList = Object.values(customFieldSummary).map(f => ({\n  field_id: f.field_id,\n  sample_values: [...f.sample_values].slice(0, 3)\n}));\n\nreturn [{\n  json: {\n    tickets_sampled: tickets.length,\n    ka_tags_found: [...kaTags],\n    article_related_tags: articleRelatedTags,\n    all_custom_fields_with_values: fieldList,\n    note: 'ka_ tags = Knowledge Capture article links. Check article_related_tags first.'\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1152,
+        2784
+      ],
+      "id": "9de2df20-9efb-451f-a9f1-283a80c674de",
+      "name": "Code in JavaScript1"
+    },
+    {
+      "parameters": {
+        "url": "https://kipuhealth.zendesk.com/api/v2/search.json?query=type:ticket ticket_form_id:1900001563224&created>2026-04-01&per_page=20&include=custom_fields",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "zendeskApi",
+        "options": {}
+      },
+      "id": "f862a647-8608-44b4-9f61-f83e387048f3",
+      "name": "HTTP - Zendesk Searches",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        944,
+        2784
+      ],
+      "credentials": {
+        "zendeskApi": {
+          "id": "Nd6nYzUYdeDBS3Gj",
+          "name": "Equinox Zendesk Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://kipuhealth.zendesk.com/api/v2/search/count.json?query=ticket_form_id:1900001563224 created>2026-01-01 created<2026-04-01 custom_field_1260824167549:support_",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "zendeskApi",
+        "options": {}
+      },
+      "id": "dd442319-1ebe-4ec5-9a1e-d0816488ad99",
+      "name": "HTTP - Zendesk Searches 2",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        944,
+        2960
+      ],
+      "credentials": {
+        "zendeskApi": {
+          "id": "Nd6nYzUYdeDBS3Gj",
+          "name": "Equinox Zendesk Account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook - Preview": {
+      "main": [
+        [
+          {
+            "node": "Prepare Preview Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Preview Request": {
+      "main": [
+        [
+          {
+            "node": "Zendesk - Preview Count",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Zendesk - Preview Page IDs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zendesk - Preview Count": {
+      "main": [
+        [
+          {
+            "node": "Build Preview Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Preview Response": {
+      "main": [
+        [
+          {
+            "node": "Respond - Preview",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook - Sync Forms": {
+      "main": [
+        [
+          {
+            "node": "Zendesk Ticket Forms Pull",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zendesk Ticket Forms Pull": {
+      "main": [
+        [
+          {
+            "node": "Build Ticket Form Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Ticket Form Rows": {
+      "main": [
+        [
+          {
+            "node": "Pack Form Rows JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pack Form Rows JSON": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Upsert Forms",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Upsert Forms": {
+      "main": [
+        [
+          {
+            "node": "Build Forms Sync Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Forms Sync Response": {
+      "main": [
+        [
+          {
+            "node": "Respond - Sync Forms",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook - Sync Users": {
+      "main": [
+        [
+          {
+            "node": "Init Users Sync",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Init Users Sync": {
+      "main": [
+        [
+          {
+            "node": "Fetch Users Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Users Page": {
+      "main": [
+        [
+          {
+            "node": "Build User Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build User Rows": {
+      "main": [
+        [
+          {
+            "node": "Pack User Rows JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pack User Rows JSON": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Upsert Users",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Upsert Users": {
+      "main": [
+        [
+          {
+            "node": "Build Users Page State",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Users Page State": {
+      "main": [
+        [
+          {
+            "node": "More User Pages?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "More User Pages?": {
+      "main": [
+        [
+          {
+            "node": "Next Users Page URL",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Users Sync Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Next Users Page URL": {
+      "main": [
+        [
+          {
+            "node": "Fetch Users Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Users Sync Response": {
+      "main": [
+        [
+          {
+            "node": "Respond - Sync Users",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook - Run Sync": {
+      "main": [
+        [
+          {
+            "node": "Code - Prepare Run Sync Search",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Prepare Run Sync Search": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Search Tickets Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Search Tickets Page": {
+      "main": [
+        [
+          {
+            "node": "Code - Prepare Batch IDs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Prepare Batch IDs": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Fetch Ticket Batch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Fetch Ticket Batch": {
+      "main": [
+        [
+          {
+            "node": "Code - Expand Tickets For Metrics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Expand Tickets For Metrics": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Fetch Ticket Metrics": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Upsert Tickets": {
+      "main": [
+        [
+          {
+            "node": "Code - Accumulate Sync Totals",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "More Sync Pages?": {
+      "main": [
+        [
+          {
+            "node": "Wait - Between Sync Batches",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code - Build Sync Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait - Between Sync Batches": {
+      "main": [
+        [
+          {
+            "node": "Code - Next Search Page URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Next Search Page URL": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Search Tickets Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Build Sync Response": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Final Sync Count",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Build Batch Payload": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Upsert Tickets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zendesk - Preview Page IDs": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Zendesk List All Fields": {
+      "main": [
+        [
+          {
+            "node": "Code - Shrink Ticket Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Accumulate Sync Totals": {
+      "main": [
+        [
+          {
+            "node": "More Sync Pages?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [
+          {
+            "node": "Code - Build Batch Payload",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "HTTP - Fetch Ticket Metrics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Load SLA Ticket Batches": {
+      "main": [
+        [
+          {
+            "node": "Code - Batch Ticket IDs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Update SLA Flags": {
+      "main": [
+        [
+          {
+            "node": "Loop Over SLA Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Batch Ticket IDs": {
+      "main": [
+        [
+          {
+            "node": "Loop Over SLA Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Build SLA Update Payload": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Update SLA Flags",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over SLA Batches": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Final SLA Count",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "HTTP: Fetch Ticket Batch with SLAs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP: Fetch Ticket Batch with SLAs": {
+      "main": [
+        [
+          {
+            "node": "Code - Build SLA Update Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Final SLA Count": {
+      "main": [
+        [
+          {
+            "node": "Respond to Backfill Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook - Backfill": {
+      "main": [
+        [
+          {
+            "node": "Code - Parse Backfill Params",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Final Sync Count": {
+      "main": [
+        [
+          {
+            "node": "Respond - Run Sync",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Parse Backfill Params": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Load SLA Ticket Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Zendesk Searches": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "ef99db81-b93b-43a7-ba8e-0c414fd1fe5f",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "52593113cc94089cd75ae3f96772feead566141362fb1a394622a12d4e4e1f80"
+  },
+  "id": "Wp1LMQrk4tVyXTG5",
+  "tags": []
+}
