@@ -1,0 +1,98 @@
+{
+  "name": "Chunk Sync - New Nodes (import into Zendesk Metrics - Kipu Sync)",
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "const body = $json.body || $json || {};\n\nconst formId = String(body.form_id || '');\nconst formName = body.form_name || null;\nconst dateFrom = body.date_from;\nconst dateTo = body.date_to;\n\nif (!formId || !dateFrom || !dateTo) {\n  throw new Error('form_id, date_from, and date_to are required');\n}\n\nconst zendeskQuery = `type:ticket ticket_form_id:${formId} created>=${dateFrom} created<${dateTo} custom_field_1260824167549:support_`;\n\nreturn [{\n  json: {\n    form_id: formId,\n    form_name: formName,\n    date_from: dateFrom,\n    date_to: dateTo,\n    zendesk_query: zendeskQuery\n  }\n}];"
+      },
+      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567801",
+      "name": "Code - Prep Count Query",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [416, 1700]
+    },
+    {
+      "parameters": {
+        "url": "https://kipuhealth.zendesk.com/api/v2/search/count.json",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "zendeskApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "query",
+              "value": "={{ $json.zendesk_query }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567802",
+      "name": "HTTP - Count Full Range",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [672, 1700],
+      "credentials": {
+        "zendeskApi": {
+          "id": "Nd6nYzUYdeDBS3Gj",
+          "name": "Equinox Zendesk Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Receives output from HTTP - Count Full Range (one item with { count: N })\n// Also reads webhook body via node reference for form/date context\nconst prepData = $('Code - Prep Count Query').first().json;\nconst totalCount = Number($json.count || 0);\n\nconst formId = prepData.form_id;\nconst formName = prepData.form_name || null;\nconst dateFrom = prepData.date_from;\nconst dateTo = prepData.date_to;\n\n// 5-day windows using >= start / < end so no gaps at boundaries.\n// At ~170 tickets/day, 5 days = ~850 tickets per chunk — safely under the 1,000-result Zendesk cap.\nconst CHUNK_DAYS = 5;\n\nconst runId = `ticket-sync-${formId}-${dateFrom.replace(/-/g, '')}-${Date.now()}`;\n\nconst chunks = [];\nlet cursor = new Date(dateFrom + 'T00:00:00Z');\nconst rangeEnd = new Date(dateTo + 'T00:00:00Z');\n\nwhile (cursor < rangeEnd) {\n  const chunkFrom = cursor.toISOString().slice(0, 10);\n  const nextCursor = new Date(cursor);\n  nextCursor.setUTCDate(nextCursor.getUTCDate() + CHUNK_DAYS);\n  if (nextCursor > rangeEnd) nextCursor.setTime(rangeEnd.getTime());\n  const chunkTo = nextCursor.toISOString().slice(0, 10);\n\n  chunks.push({\n    run_id: runId,\n    form_id: formId,\n    form_name: formName,\n    date_from: chunkFrom,\n    date_to: chunkTo,\n    total_count_estimate: totalCount\n  });\n\n  cursor = nextCursor;\n}\n\nconst totalChunks = chunks.length;\n\nreturn chunks.map((c, i) => ({\n  json: {\n    ...c,\n    chunk_num: i + 1,\n    total_chunks: totalChunks\n  }\n}));"
+      },
+      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567803",
+      "name": "Code - Build Chunk List",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [928, 1700]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO public.sync_progress (\n  run_id,\n  flow_name,\n  status,\n  current_batch,\n  total_batches,\n  batch_size,\n  updated_rows,\n  note,\n  updated_at\n)\nVALUES (\n  '{{ (($json.run_id || \"ticket-sync-run\") + \"\").replace(/'/g, \"''\") }}',\n  'ticket_sync',\n  'running',\n  0,\n  {{ $json.total_chunks || 0 }},\n  0,\n  0,\n  'Sync started: {{ ($json.date_from || \"\").replace(/'/g, \"''\") }} to {{ ($json.date_to || \"\").replace(/'/g, \"''\") }} — {{ $json.total_chunks || 0 }} chunks, ~{{ $json.total_count_estimate || 0 }} tickets',\n  now()\n)\nON CONFLICT (run_id) DO NOTHING;",
+        "options": {}
+      },
+      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567804",
+      "name": "Postgres - Init Sync Progress",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1184, 1700],
+      "credentials": {
+        "postgres": {
+          "id": "XjgfokqBkBtAIKkz",
+          "name": "Equinox Supabase - Zendesk Ticket Metrics"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567805",
+      "name": "Split in Batches - Chunk Loop",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [1440, 1700]
+    },
+    {
+      "parameters": {
+        "amount": 4
+      },
+      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567806",
+      "name": "Wait - Between Chunks",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [2896, 1700],
+      "webhookId": "b2c3d4e5-f6a7-8901-bcde-f12345678906"
+    }
+  ],
+  "connections": {},
+  "pinData": {},
+  "meta": {
+    "notes": "NEW CONNECTION MAP (wire these after importing nodes):\n  Webhook - Run Sync → Code - Prep Count Query\n  Code - Prep Count Query → HTTP - Count Full Range\n  HTTP - Count Full Range → Code - Build Chunk List\n  Code - Build Chunk List → Postgres - Init Sync Progress\n  Postgres - Init Sync Progress → Split in Batches - Chunk Loop\n  Split in Batches - Chunk Loop [output 0 loop] → Code - Prepare Run Sync Search (existing, MODIFIED)\n  Split in Batches - Chunk Loop [output 1 done] → Code - Build Sync Response (existing)\n  More Sync Pages? [output 1 false] → Wait - Between Chunks  (remove existing arrow to Code - Build Sync Response)\n  Wait - Between Chunks → Split in Batches - Chunk Loop\n\nNODES TO MODIFY (one at a time, next step):\n  1. Code - Prepare Run Sync Search — read chunk from $json instead of Webhook - Run Sync body\n  2. Postgres - Final Sync Count — UPDATE status=completed using global accumulated totals\n\nROOT CAUSE OF MISSING TICKETS:\n  Zendesk search.json caps at 1,000 total results. Jan has 5,218 tickets so only ~1,000 were fetched.\n  5-day chunks keep each chunk under 850 tickets, safely under the cap.\n  Using created>= start and created< end eliminates the boundary-date gap where\n  Base44 chunking silently dropped tickets on chunk boundary dates."
+  }
+}
