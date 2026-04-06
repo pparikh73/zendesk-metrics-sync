@@ -1,5 +1,5 @@
 {
-  "name": "Zendesk Metrics - Kipu Sync",
+  "name": "Kipu - Zendesk Metrics",
   "nodes": [
     {
       "parameters": {
@@ -401,22 +401,22 @@
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
       "position": [
-        416,
-        1392
+        256,
+        1648
       ],
       "webhookId": "11e247b1-9c5f-4611-a04f-0b8d5d5ca4ed"
     },
     {
       "parameters": {
-        "jsCode": "const body = $json.body || $json || {};\n\nconst data = $getWorkflowStaticData('global');\ndata.sync_pages_loaded = 0;\ndata.sync_input_rows = 0;\ndata.sync_upserted_rows = 0;\ndata.sync_refreshed_form_rows = 0;\ndata.sync_refreshed_agent_rows = 0;\n\nconst formId = body.form_id;\nconst formName = body.form_name || null;\nconst dateFrom = body.date_from;\nconst dateTo = body.date_to;\n\nif (!formId || !dateFrom || !dateTo) {\n  throw new Error('form_id, date_from, and date_to are required');\n}\n\nconst zendeskQuery = `type:ticket ticket_form_id:${formId} created>${dateFrom} created<${dateTo} custom_field_1260824167549:support_`;\n\nconst url = `https://kipuhealth.zendesk.com/api/v2/search.json?query=${encodeURIComponent(zendeskQuery)}&page=1&per_page=100&sort_by=created_at&sort_order=asc`;\n\nreturn [{\n  json: {\n    form_id: formId,\n    form_name: formName,\n    date_from: dateFrom,\n    date_to: dateTo,\n    zendesk_query: zendeskQuery,\n    url\n  }\n}];"
+        "jsCode": "const count = $json.count || 0;\nconst chunk = $('Split in Batches - Chunk Loop').first().json;\n\nif (count > 1000) {\n  throw new Error(\n    `CHUNK TOO LARGE — Chunk ${chunk.chunk_num}/${chunk.total_chunks} ` +\n    `(${chunk.date_from} → ${chunk.date_to}) has ${count} tickets. ` +\n    `Avg/day: ${chunk.avg_per_day}, chunk_days: ${chunk.chunk_days_used}. ` +\n    `Restart from chunk ${chunk.chunk_num} after reducing CHUNK_DAYS.`\n  );\n}\n\nconst data = $getWorkflowStaticData('global');\ndata.sync_pages_loaded = 0;\n\nconst formId = chunk.form_id;\nconst formName = chunk.form_name || null;\nconst dateFrom = chunk.date_from;\nconst dateTo = chunk.date_to;\n\nconst zendeskQuery = `type:ticket ticket_form_id:${formId} created>=${dateFrom} created<${dateTo} custom_field_1260824167549:support_`;\nconst url = `https://kipuhealth.zendesk.com/api/v2/search.json?query=${encodeURIComponent(zendeskQuery)}&page=1&per_page=100&sort_by=created_at&sort_order=asc`;\n\nreturn [{\n  json: {\n    run_id: chunk.run_id,\n    form_id: formId,\n    form_name: formName,\n    date_from: dateFrom,\n    date_to: dateTo,\n    chunk_num: chunk.chunk_num,\n    total_chunks: chunk.total_chunks,\n    total_count_estimate: chunk.total_count_estimate,\n    chunk_days_used: chunk.chunk_days_used,\n    avg_per_day: chunk.avg_per_day,\n    chunk_count_verified: count,\n    zendesk_query: zendeskQuery,\n    url\n  }\n}];\n"
       },
       "id": "85088980-dd44-41c6-993a-8cec3275728b",
       "name": "Code - Prepare Run Sync Search",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        656,
-        1392
+        1824,
+        1856
       ]
     },
     {
@@ -431,8 +431,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
       "position": [
-        896,
-        1392
+        2048,
+        1856
       ],
       "credentials": {
         "zendeskApi": {
@@ -443,15 +443,15 @@
     },
     {
       "parameters": {
-        "jsCode": "const req = $('Code - Prepare Run Sync Search').first().json || {};\nconst body = $('Webhook - Run Sync').first().json.body || $('Webhook - Run Sync').first().json || {};\nconst results = Array.isArray($json.results) ? $json.results : [];\nconst ticketIds = results.map(r => r.id).filter(id => id != null);\n\nconst data = $getWorkflowStaticData('global');\nconst currentPage = (data.sync_pages_loaded || 0) + 1;  // increments each loop via Code - Accumulate Sync Totals\n\nconst totalPages = Math.ceil(($json.count || 0) / 100);  // count = total from Zendesk search\n\nconst runId =\n  body.run_id ||\n  `ticket-sync-${new Date().toISOString().replace(/[:.]/g, '-')}`;\n\nreturn [{\n  json: {\n    run_id: runId,\n    current_batch: currentPage,\n    total_batches: totalPages,\n    expected_count: ticketIds.length,\n    form_id: req.form_id,\n    form_name: req.form_name,\n    date_from: req.date_from,\n    date_to: req.date_to,\n    zendesk_query: req.zendesk_query,\n    ticket_ids: ticketIds,\n    ids_csv: ticketIds.join(','),\n    batch_count: ticketIds.length,\n    total_found: $json.count ?? 0,\n    next_page_url: $json.next_page || null,\n    end_of_stream: !$json.next_page\n  }\n}];\n"
+        "jsCode": "const req = $('Code - Prepare Run Sync Search').first().json || {};\nconst results = Array.isArray($json.results) ? $json.results : [];\nconst ticketIds = results.map(r => r.id).filter(id => id != null);\n\nconst data = $getWorkflowStaticData('global');\nconst currentPage = (data.sync_pages_loaded || 0) + 1;\nconst totalPages = Math.ceil(($json.count || 0) / 100);\n\n// Use run_id from chunk — do NOT regenerate per page\nconst runId = req.run_id || `ticket-sync-${new Date().toISOString().replace(/[:.]/g, '-')}`;\n\nreturn [{\n  json: {\n    run_id: runId,\n    current_batch: currentPage,\n    total_batches: totalPages,\n    expected_count: ticketIds.length,\n    form_id: req.form_id,\n    form_name: req.form_name,\n    date_from: req.date_from,\n    date_to: req.date_to,\n    chunk_num: req.chunk_num,\n    total_chunks: req.total_chunks,\n    zendesk_query: req.zendesk_query,\n    ticket_ids: ticketIds,\n    ids_csv: ticketIds.join(','),\n    batch_count: ticketIds.length,\n    total_found: $json.count ?? 0,\n    next_page_url: $json.next_page || null,\n    end_of_stream: !$json.next_page\n  }\n}];\n"
       },
       "id": "9bb880e4-2396-4ece-867f-b472dad643a7",
       "name": "Code - Prepare Batch IDs",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1136,
-        1392
+        2288,
+        1856
       ]
     },
     {
@@ -466,8 +466,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
       "position": [
-        1376,
-        1392
+        2528,
+        1856
       ],
       "credentials": {
         "zendeskApi": {
@@ -485,8 +485,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1616,
-        1392
+        2768,
+        1856
       ]
     },
     {
@@ -501,8 +501,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        2000,
-        1456
+        3152,
+        1920
       ],
       "credentials": {
         "zendeskApi": {
@@ -514,7 +514,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "with input_payload as (\n  select\n   '{{ ($json.ticket_rows_json || \"[]\").replace(/'/g, \"''\") }}'::jsonb as rows_json,\n    {{ $json.input_rows || $json.batch_count || 0 }}::integer as batch_count,\n    {{ $json.end_of_stream ? 'true' : 'false' }}::boolean as end_of_stream,\n    {{ $json.next_page_url ? `'${String($json.next_page_url).replace(/'/g, \"''\")}'` : 'null' }}::text as next_page_url\n),\nparsed_rows as (\n  select\n    (row->>'ticket_id')::bigint as ticket_id,\n    (row->>'ticket_created_at')::timestamptz as ticket_created_at,\n    (row->>'ticket_updated_at')::timestamptz as ticket_updated_at,\n    (row->>'ticket_solved_at')::timestamptz as ticket_solved_at,\n    row->>'status' as status,\n    row->>'channel' as channel,\n    (row->>'form_id')::bigint as form_id,\n    row->>'form_name' as form_name,\n    (row->>'assignee_id')::bigint as assignee_id,\n    (row->>'group_id')::bigint as group_id,\n    row->>'csat_score' as csat_score,\n    (row->>'first_reply_time_business_minutes')::integer as first_reply_time_business_minutes,\n    (row->>'next_reply_time_business_minutes')::integer as next_reply_time_business_minutes,\n    (row->>'pausable_update_time_business_minutes')::integer as pausable_update_time_business_minutes,\n    (row->>'requester_wait_time_business_minutes')::integer as requester_wait_time_business_minutes,\n    (row->>'full_resolution_time_business_minutes')::integer as full_resolution_time_business_minutes,\n    (row->>'one_business_day_solve_flag')::boolean as one_business_day_solve_flag,\n    (row->>'sla_breached_flag')::boolean as sla_breached_flag,\n    (row->>'article_linked_flag')::boolean as article_linked_flag,\n    (row->>'missed_call_flag')::boolean as missed_call_flag,\n    coalesce((row->>'ticket_count')::integer, 1) as ticket_count\n  from input_payload,\n  jsonb_array_elements(rows_json) as row\n),\nupserted as (\n  insert into public.support_ticket_metrics_fact (\n    ticket_id,\n    ticket_created_at,\n    ticket_updated_at,\n    ticket_solved_at,\n    status,\n    channel,\n    form_id,\n    form_name,\n    assignee_id,\n    group_id,\n    csat_score,\n    first_reply_time_business_minutes,\n    next_reply_time_business_minutes,\n    pausable_update_time_business_minutes,\n    requester_wait_time_business_minutes,\n    full_resolution_time_business_minutes,\n    one_business_day_solve_flag,\n    sla_breached_flag,\n    article_linked_flag,\n    missed_call_flag,\n    ticket_count,\n    synced_at\n  )\n  select\n    ticket_id,\n    ticket_created_at,\n    ticket_updated_at,\n    ticket_solved_at,\n    status,\n    channel,\n    form_id,\n    form_name,\n    assignee_id,\n    group_id,\n    csat_score,\n    first_reply_time_business_minutes,\n    next_reply_time_business_minutes,\n    pausable_update_time_business_minutes,\n    requester_wait_time_business_minutes,\n    full_resolution_time_business_minutes,\n    one_business_day_solve_flag,\n    sla_breached_flag,\n    article_linked_flag,\n    missed_call_flag,\n    ticket_count,\n    now()\n  from parsed_rows\n  on conflict (ticket_id) do update set\n    ticket_created_at = excluded.ticket_created_at,\n    ticket_updated_at = excluded.ticket_updated_at,\n    ticket_solved_at = excluded.ticket_solved_at,\n    status = excluded.status,\n    channel = excluded.channel,\n    form_id = excluded.form_id,\n    form_name = excluded.form_name,\n    assignee_id = excluded.assignee_id,\n    group_id = excluded.group_id,\n    csat_score = excluded.csat_score,\n    first_reply_time_business_minutes = excluded.first_reply_time_business_minutes,\n    next_reply_time_business_minutes = excluded.next_reply_time_business_minutes,\n    pausable_update_time_business_minutes = excluded.pausable_update_time_business_minutes,\n    requester_wait_time_business_minutes = excluded.requester_wait_time_business_minutes,\n    full_resolution_time_business_minutes = excluded.full_resolution_time_business_minutes,\n    one_business_day_solve_flag = excluded.one_business_day_solve_flag,\n    sla_breached_flag = excluded.sla_breached_flag,\n    article_linked_flag = excluded.article_linked_flag,\n    missed_call_flag = excluded.missed_call_flag,\n    ticket_count = excluded.ticket_count,\n    synced_at = now()\n  returning ticket_id\n),\nprogress as (\n  insert into public.sync_progress (\n    run_id,\n    flow_name,\n    status,\n    current_batch,\n    total_batches,\n    batch_size,\n    updated_rows,\n    note,\n    updated_at\n  )\n  values (\n    '{{ (($json.run_id || \"ticket-sync-run\") + \"\").replace(/'/g, \"''\") }}',\n    'ticket_sync',\n    'running',\n    {{ $json.current_batch || 0 }},\n    {{ $json.total_batches || 0 }},\n    {{ $json.expected_count || $json.batch_count || 0 }},\n    (select count(*) from upserted),\n    '{{ ((`Processed ticket sync chunk ${$json.current_batch || 0} of ${$json.total_batches || 0}`) + \"\").replace(/'/g, \"''\") }}',\n    now()\n  )\n  on conflict (run_id) do update set\n    flow_name = excluded.flow_name,\n    status = excluded.status,\n    current_batch = excluded.current_batch,\n    total_batches = excluded.total_batches,\n    batch_size = excluded.batch_size,\n    updated_rows = coalesce(public.sync_progress.updated_rows, 0) + excluded.updated_rows,\n    note = excluded.note,\n    updated_at = now()\n  returning id\n)\nselect\n  (select count(*) from upserted) as upserted_rows,\n  (select count(*) from parsed_rows) as parsed_rows,\n  (select batch_count from input_payload) as batch_count,\n  (select end_of_stream from input_payload) as end_of_stream,\n  (select next_page_url from input_payload) as next_page_url;",
+        "query": "with input_payload as (\n  select\n    '{{ ($json.ticket_rows_json || \"[]\").replace(/'/g, \"''\") }}'::jsonb as rows_json,\n    {{ $json.input_rows || $json.batch_count || 0 }}::integer as batch_count,\n    {{ $json.end_of_stream ? 'true' : 'false' }}::boolean as end_of_stream,\n    {{ $json.next_page_url ? `'${String($json.next_page_url).replace(/'/g, \"''\")}'` : 'null' }}::text as next_page_url\n),\nparsed_rows as (\n  select\n    (row->>'ticket_id')::bigint as ticket_id,\n    (row->>'ticket_created_at')::timestamptz as ticket_created_at,\n    (row->>'ticket_updated_at')::timestamptz as ticket_updated_at,\n    (row->>'ticket_solved_at')::timestamptz as ticket_solved_at,\n    row->>'status' as status,\n    row->>'channel' as channel,\n    (row->>'form_id')::bigint as form_id,\n    row->>'form_name' as form_name,\n    (row->>'assignee_id')::bigint as assignee_id,\n    (row->>'group_id')::bigint as group_id,\n    row->>'csat_score' as csat_score,\n    (row->>'first_reply_time_business_minutes')::integer as first_reply_time_business_minutes,\n    (row->>'next_reply_time_business_minutes')::integer as next_reply_time_business_minutes,\n    (row->>'pausable_update_time_business_minutes')::integer as pausable_update_time_business_minutes,\n    (row->>'requester_wait_time_business_minutes')::integer as requester_wait_time_business_minutes,\n    (row->>'full_resolution_time_business_minutes')::integer as full_resolution_time_business_minutes,\n    (row->>'one_business_day_solve_flag')::boolean as one_business_day_solve_flag,\n    (row->>'sla_breached_flag')::boolean as sla_breached_flag,\n    (row->>'article_linked_flag')::boolean as article_linked_flag,\n    (row->>'missed_call_flag')::boolean as missed_call_flag,\n    coalesce((row->>'ticket_count')::integer, 1) as ticket_count\n  from input_payload,\n  jsonb_array_elements(rows_json) as row\n),\nupserted as (\n  insert into public.support_ticket_metrics_fact (\n    ticket_id, ticket_created_at, ticket_updated_at, ticket_solved_at,\n    status, channel, form_id, form_name, assignee_id, group_id, csat_score,\n    first_reply_time_business_minutes, next_reply_time_business_minutes,\n    pausable_update_time_business_minutes, requester_wait_time_business_minutes,\n    full_resolution_time_business_minutes, one_business_day_solve_flag,\n    sla_breached_flag, article_linked_flag, missed_call_flag, ticket_count, synced_at\n  )\n  select\n    ticket_id, ticket_created_at, ticket_updated_at, ticket_solved_at,\n    status, channel, form_id, form_name, assignee_id, group_id, csat_score,\n    first_reply_time_business_minutes, next_reply_time_business_minutes,\n    pausable_update_time_business_minutes, requester_wait_time_business_minutes,\n    full_resolution_time_business_minutes, one_business_day_solve_flag,\n    sla_breached_flag, article_linked_flag, missed_call_flag, ticket_count, now()\n  from parsed_rows\n  on conflict (ticket_id) do update set\n    ticket_created_at = excluded.ticket_created_at,\n    ticket_updated_at = excluded.ticket_updated_at,\n    ticket_solved_at = excluded.ticket_solved_at,\n    status = excluded.status,\n    channel = excluded.channel,\n    form_id = excluded.form_id,\n    form_name = excluded.form_name,\n    assignee_id = excluded.assignee_id,\n    group_id = excluded.group_id,\n    csat_score = excluded.csat_score,\n    first_reply_time_business_minutes = excluded.first_reply_time_business_minutes,\n    next_reply_time_business_minutes = excluded.next_reply_time_business_minutes,\n    pausable_update_time_business_minutes = excluded.pausable_update_time_business_minutes,\n    requester_wait_time_business_minutes = excluded.requester_wait_time_business_minutes,\n    full_resolution_time_business_minutes = excluded.full_resolution_time_business_minutes,\n    one_business_day_solve_flag = excluded.one_business_day_solve_flag,\n    sla_breached_flag = excluded.sla_breached_flag,\n    article_linked_flag = excluded.article_linked_flag,\n    missed_call_flag = excluded.missed_call_flag,\n    ticket_count = excluded.ticket_count,\n    synced_at = now()\n  returning ticket_id\n),\nprogress as (\n  insert into public.sync_progress (\n    run_id, flow_name, status, current_batch, total_batches,\n    batch_size, updated_rows, note, updated_at\n  )\n  values (\n    '{{ (($json.run_id || \"ticket-sync-run\") + \"\").replace(/'/g, \"''\") }}',\n    'ticket_sync',\n    'running',\n    {{ $json.current_batch || 0 }},\n    {{ $json.total_batches || 0 }},\n    {{ $json.total_count_estimate || 0 }},\n    (select count(*) from upserted),\n    'Chunk {{ $json.current_batch || 0 }}/{{ $json.total_batches || 0 }} · Page {{ $json.page_num || 0 }}/{{ $json.total_pages || 0 }} · {{ $json.input_rows || 0 }} rows this page',\n    now()\n  )\n  on conflict (run_id) do update set\n    status = excluded.status,\n    current_batch = excluded.current_batch,\n    total_batches = excluded.total_batches,\n    batch_size = excluded.batch_size,\n    updated_rows = coalesce(public.sync_progress.updated_rows, 0) + excluded.updated_rows,\n    note = excluded.note,\n    updated_at = now()\n  returning id\n)\nselect\n  (select count(*) from upserted) as upserted_rows,\n  (select count(*) from parsed_rows) as parsed_rows,\n  (select batch_count from input_payload) as batch_count,\n  (select end_of_stream from input_payload) as end_of_stream,\n  (select next_page_url from input_payload) as next_page_url;\n",
         "options": {}
       },
       "id": "25b6599a-d066-472c-b602-23884ded2589",
@@ -522,8 +522,8 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
       "position": [
-        2528,
-        1376
+        3680,
+        1840
       ],
       "alwaysOutputData": true,
       "credentials": {
@@ -563,8 +563,8 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        2896,
-        1376
+        4048,
+        1840
       ]
     },
     {
@@ -576,8 +576,8 @@
       "type": "n8n-nodes-base.wait",
       "typeVersion": 1.1,
       "position": [
-        3152,
-        1536
+        4288,
+        1824
       ],
       "webhookId": "538d0804-15b0-4859-8a0f-2a2ac212f45e"
     },
@@ -590,21 +590,21 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        3408,
-        1536
+        4480,
+        1968
       ]
     },
     {
       "parameters": {
-        "jsCode": "const body = $('Webhook - Run Sync').first().json.body || $('Webhook - Run Sync').first().json || {};\nconst data = $getWorkflowStaticData('global');\n\nconst searchItems = $('HTTP - Search Tickets Page').all();\n\nlet totalFound = 0;\nfor (const item of searchItems) {\n  if (item.json?.count != null) {\n    totalFound = Number(item.json.count);\n    break;\n  }\n}\n\nconst totalBatches = Math.ceil(totalFound / 100);\n\nreturn [{\n  json: {\n    status: 'success',\n    run_id: body.run_id || null,\n    form_id: body.form_id ?? null,\n    form_name: body.form_name ?? null,\n    date_from: body.date_from ?? null,\n    date_to: body.date_to ?? null,\n    total_found: totalFound,\n    total_batches: totalBatches,\n    pages_loaded: data.sync_pages_loaded || 0,\n    input_rows: data.sync_input_rows || 0,\n    upserted_rows: data.sync_upserted_rows || 0\n  }\n}];\n"
+        "jsCode": "const data = $getWorkflowStaticData('global');\n\n// Get run_id from the chunk list (generated internally, never in webhook body)\nconst chunkData = $('Code - Build Chunk List').first().json;\nconst webhookBody = $('Webhook - Run Sync').first().json.body || $('Webhook - Run Sync').first().json || {};\n\nreturn [{\n  json: {\n    status: 'success',\n    run_id: chunkData.run_id || null,\n    form_id: webhookBody.form_id ?? null,\n    form_name: webhookBody.form_name ?? null,\n    date_from: webhookBody.date_from ?? null,\n    date_to: webhookBody.date_to ?? null,\n    total_found: data.sync_input_rows || 0,\n    pages_loaded: data.sync_pages_loaded || 0,\n    input_rows: data.sync_input_rows || 0,\n    upserted_rows: data.sync_upserted_rows || 0,\n    total_chunks: chunkData.total_chunks || 0\n  }\n}];\n"
       },
       "id": "0a8e8921-3213-41b6-a79c-7faa7b87c1b0",
       "name": "Code - Build Sync Response",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        3600,
-        1392
+        1824,
+        1632
       ]
     },
     {
@@ -616,21 +616,21 @@
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
       "position": [
-        4048,
-        1392
+        2304,
+        1632
       ]
     },
     {
       "parameters": {
-        "jsCode": "const batch = $('Code - Prepare Batch IDs').first().json || {};\n\nconst tickets = Array.isArray($('HTTP - Fetch Ticket Batch').first().json.tickets)\n  ? $('HTTP - Fetch Ticket Batch').first().json.tickets\n  : [];\n\nconst metricItems = $('HTTP - Fetch Ticket Metrics').all();\n\nconst metricsByTicketId = {};\nfor (const item of metricItems) {\n  const metric = item.json?.ticket_metric || {};\n  if (metric.ticket_id != null) {\n    metricsByTicketId[String(metric.ticket_id)] = metric;\n  }\n}\n\nconst formName = batch.form_name ?? null;\n\nconst ARTICLE_LINKED_FIELD_IDS = [18158428639387, 25171038337691];\n\nfunction getCustomFieldValue(ticket, fieldIds) {\n  const fields = Array.isArray(ticket.custom_fields) ? ticket.custom_fields : [];\n  for (const fieldId of fieldIds) {\n    const match = fields.find(f => Number(f.id) === Number(fieldId));\n    if (match && match.value !== undefined && match.value !== null && match.value !== '') {\n      return match.value;\n    }\n  }\n  return null;\n}\n\nfunction hasAnyTag(ticket, tagList) {\n  const tags = Array.isArray(ticket.tags) ? ticket.tags : [];\n  return tagList.some(tag => tags.includes(tag));\n}\n\nfunction normalizeBoolean(value, trueValues = [], falseValues = []) {\n  if (value === true) return true;\n  if (value === false) return false;\n  if (value == null) return null;\n  const v = String(value).toLowerCase().trim();\n  if (['yes', 'true', '1'].includes(v)) return true;\n  if (['no', 'false', '0'].includes(v)) return false;\n  if (trueValues.map(x => String(x).toLowerCase()).includes(v)) return true;\n  if (falseValues.map(x => String(x).toLowerCase()).includes(v)) return false;\n  return null;\n}\n\nfunction getSlaBreachedFlag(ticket, metric) {\n  const policyMetrics = Array.isArray(ticket.slas?.policy_metrics)\n    ? ticket.slas.policy_metrics : [];\n  if (!policyMetrics.length) return null;\n\n  const solvedAt = metric?.solved_at ? new Date(metric.solved_at) : null;\n\n  return policyMetrics.some(m => {\n    if (!m.breach_at) return false;\n    if (solvedAt) {\n      return new Date(m.breach_at) < solvedAt;\n    }\n    return m.stage === 'breached';\n  });\n}\n\nconst rows = tickets.map(ticket => {\n  const metric = metricsByTicketId[String(ticket.id)] || {};\n  const resolution = metric.full_resolution_time_in_minutes?.business ?? null;\n\n  const articleLinkedRaw = getCustomFieldValue(ticket, ARTICLE_LINKED_FIELD_IDS);\n  let articleLinkedFlag = normalizeBoolean(\n    articleLinkedRaw,\n    ['kcs_linked_yes', 'kcslinked_yes'],\n    ['kcs_linked_no', 'kcslinked_no']\n  );\n  if (articleLinkedFlag == null) {\n    if (hasAnyTag(ticket, ['kcs_linked_yes', 'kcslinked_yes'])) {\n      articleLinkedFlag = true;\n    } else if (hasAnyTag(ticket, ['kcs_linked_no', 'kcslinked_no'])) {\n      articleLinkedFlag = false;\n    }\n  }\n\n  return {\n    ticket_id: ticket.id ?? null,\n    ticket_created_at: ticket.created_at ?? null,\n    ticket_updated_at: ticket.updated_at ?? null,\n    ticket_solved_at: metric.solved_at ?? ticket.solved_at ?? null,\n    status: ticket.status ?? null,\n    channel: ticket.via?.channel ?? null,\n    form_id: ticket.ticket_form_id ?? null,\n    form_name: formName,\n    assignee_id: ticket.assignee_id ?? null,\n    group_id: ticket.group_id ?? null,\n    csat_score: ticket.satisfaction_rating?.score ?? null,\n    first_reply_time_business_minutes: metric.reply_time_in_minutes?.business ?? null,\n    next_reply_time_business_minutes: null,\n    pausable_update_time_business_minutes: metric.on_hold_time_in_minutes?.business ?? null,\n    requester_wait_time_business_minutes: metric.requester_wait_time_in_minutes?.business ?? null,\n    full_resolution_time_business_minutes: resolution,\n    one_business_day_solve_flag: resolution != null ? resolution <= 480 : null,\n    sla_breached_flag: getSlaBreachedFlag(ticket, metric),\n    article_linked_flag: articleLinkedFlag,\n    missed_call_flag: null,\n    ticket_count: 1\n  };\n}).filter(row => row.ticket_id != null);\n\nreturn [{\n  json: {\n    run_id: batch.run_id || null,\n    current_batch: Number(batch.current_batch || 0),\n    total_batches: Number(batch.total_batches || 0),\n    expected_count: Number(batch.expected_count || rows.length),\n    ticket_rows_json: JSON.stringify(rows),\n    ticket_count: rows.length,\n    input_rows: rows.length,\n    batch_count: rows.length,\n    next_page_url: batch.next_page_url || null,\n    end_of_stream: batch.end_of_stream === true\n  }\n}];\n"
+        "jsCode": "const batch = $('Code - Prepare Batch IDs').first().json || {};\nconst prepSync = $('Code - Prepare Run Sync Search').first().json || {};\n\nconst tickets = Array.isArray($('HTTP - Fetch Ticket Batch').first().json.tickets)\n  ? $('HTTP - Fetch Ticket Batch').first().json.tickets\n  : [];\n\nconst metricItems = $('HTTP - Fetch Ticket Metrics').all();\n\nconst metricsByTicketId = {};\nfor (const item of metricItems) {\n  const metric = item.json?.ticket_metric || {};\n  if (metric.ticket_id != null) {\n    metricsByTicketId[String(metric.ticket_id)] = metric;\n  }\n}\n\nconst formName = batch.form_name ?? null;\nconst ARTICLE_LINKED_FIELD_IDS = [18158428639387, 25171038337691];\n\nfunction getCustomFieldValue(ticket, fieldIds) {\n  const fields = Array.isArray(ticket.custom_fields) ? ticket.custom_fields : [];\n  for (const fieldId of fieldIds) {\n    const match = fields.find(f => Number(f.id) === Number(fieldId));\n    if (match && match.value !== undefined && match.value !== null && match.value !== '') {\n      return match.value;\n    }\n  }\n  return null;\n}\n\nfunction hasAnyTag(ticket, tagList) {\n  const tags = Array.isArray(ticket.tags) ? ticket.tags : [];\n  return tagList.some(tag => tags.includes(tag));\n}\n\nfunction normalizeBoolean(value, trueValues = [], falseValues = []) {\n  if (value === true) return true;\n  if (value === false) return false;\n  if (value == null) return null;\n  const v = String(value).toLowerCase().trim();\n  if (['yes', 'true', '1'].includes(v)) return true;\n  if (['no', 'false', '0'].includes(v)) return false;\n  if (trueValues.map(x => String(x).toLowerCase()).includes(v)) return true;\n  if (falseValues.map(x => String(x).toLowerCase()).includes(v)) return false;\n  return null;\n}\n\nfunction getSlaBreachedFlag(ticket, metric) {\n  const policyMetrics = Array.isArray(ticket.slas?.policy_metrics)\n    ? ticket.slas.policy_metrics : [];\n  if (!policyMetrics.length) return null;\n  const solvedAt = metric?.solved_at ? new Date(metric.solved_at) : null;\n  return policyMetrics.some(m => {\n    if (!m.breach_at) return false;\n    if (solvedAt) return new Date(m.breach_at) < solvedAt;\n    return m.stage === 'breached';\n  });\n}\n\nconst rows = tickets.map(ticket => {\n  const metric = metricsByTicketId[String(ticket.id)] || {};\n  const resolution = metric.full_resolution_time_in_minutes?.business ?? null;\n\n  const articleLinkedRaw = getCustomFieldValue(ticket, ARTICLE_LINKED_FIELD_IDS);\n  let articleLinkedFlag = normalizeBoolean(\n    articleLinkedRaw,\n    ['kcs_linked_yes', 'kcslinked_yes'],\n    ['kcs_linked_no', 'kcslinked_no']\n  );\n  if (articleLinkedFlag == null) {\n    if (hasAnyTag(ticket, ['kcs_linked_yes', 'kcslinked_yes'])) articleLinkedFlag = true;\n    else if (hasAnyTag(ticket, ['kcs_linked_no', 'kcslinked_no'])) articleLinkedFlag = false;\n  }\n\n  return {\n    ticket_id: ticket.id ?? null,\n    ticket_created_at: ticket.created_at ?? null,\n    ticket_updated_at: ticket.updated_at ?? null,\n    ticket_solved_at: metric.solved_at ?? ticket.solved_at ?? null,\n    status: ticket.status ?? null,\n    channel: ticket.via?.channel ?? null,\n    form_id: ticket.ticket_form_id ?? null,\n    form_name: formName,\n    assignee_id: ticket.assignee_id ?? null,\n    group_id: ticket.group_id ?? null,\n    csat_score: ticket.satisfaction_rating?.score ?? null,\n    first_reply_time_business_minutes: metric.reply_time_in_minutes?.business ?? null,\n    next_reply_time_business_minutes: null,\n    pausable_update_time_business_minutes: metric.on_hold_time_in_minutes?.business ?? null,\n    requester_wait_time_business_minutes: metric.requester_wait_time_in_minutes?.business ?? null,\n    full_resolution_time_business_minutes: resolution,\n    one_business_day_solve_flag: resolution != null ? resolution <= 480 : null,\n    sla_breached_flag: getSlaBreachedFlag(ticket, metric),\n    article_linked_flag: articleLinkedFlag,\n    missed_call_flag: null,\n    ticket_count: 1\n  };\n}).filter(row => row.ticket_id != null);\n\nreturn [{\n  json: {\n    run_id: batch.run_id || null,\n    current_batch: Number(prepSync.chunk_num || 0),\n    total_batches: Number(prepSync.total_chunks || 0),\n    page_num: Number(batch.current_batch || 0),\n    total_pages: Number(batch.total_batches || 0),\n    expected_count: Number(batch.expected_count || rows.length),\n    ticket_rows_json: JSON.stringify(rows),\n    ticket_count: rows.length,\n    input_rows: rows.length,\n    batch_count: rows.length,\n    total_count_estimate: Number(prepSync.total_count_estimate || 0),\n    next_page_url: batch.next_page_url || null,\n    end_of_stream: batch.end_of_stream === true\n  }\n}];\n"
       },
       "id": "1daa0452-5297-4b00-88df-7a8d1fb1097d",
       "name": "Code - Build Batch Payload",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2336,
-        1376
+        3488,
+        1840
       ]
     },
     {
@@ -695,136 +695,13 @@
     },
     {
       "parameters": {
-        "url": "=https://kipuhealth.zendesk.com/api/v2/tickets/show_many.json?ids=568441&include=slas",
-        "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "zendeskApi",
-        "options": {}
-      },
-      "id": "293bd848-715c-415f-9510-172e69747ca7",
-      "name": "HTTP - Fetch Ticket Metrics - Single",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        384,
-        2480
-      ],
-      "credentials": {
-        "zendeskApi": {
-          "id": "Nd6nYzUYdeDBS3Gj",
-          "name": "Equinox Zendesk Account"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "url": "https://kipuhealth.zendesk.com/api/v2/search.json",
-        "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "zendeskApi",
-        "sendQuery": true,
-        "queryParameters": {
-          "parameters": [
-            {
-              "name": "query",
-              "value": "type:ticket ticket_form_id:32729757998235 created>2025-04-01 created<2025-12-01 custom_field_1260824167549:support_"
-            },
-            {
-              "name": "per_page",
-              "value": "1"
-            }
-          ]
-        },
-        "options": {}
-      },
-      "id": "43e0a820-a241-4e5b-900b-0487a15560b8",
-      "name": "HTTP - Count 12mo Support Tickets",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        736,
-        2512
-      ],
-      "credentials": {
-        "zendeskApi": {
-          "id": "Nd6nYzUYdeDBS3Gj",
-          "name": "Equinox Zendesk Account"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "url": "https://kipuhealth.zendesk.com/api/v2/incremental/tickets/cursor.json",
-        "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "zendeskApi",
-        "sendQuery": true,
-        "queryParameters": {
-          "parameters": [
-            {
-              "name": "start_time",
-              "value": "1769644800"
-            }
-          ]
-        },
-        "options": {}
-      },
-      "id": "63d3d231-ea5b-464e-a416-842e467ae22e",
-      "name": "HTTP - Incremental Tickets Test",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        1104,
-        2496
-      ],
-      "credentials": {
-        "zendeskApi": {
-          "id": "Nd6nYzUYdeDBS3Gj",
-          "name": "Equinox Zendesk Account"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "url": "=https://kipuhealth.zendesk.com/api/v2/ticket_fields.json",
-        "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "zendeskApi",
-        "options": {}
-      },
-      "id": "aa5c16ff-c81d-46b3-8db3-78a594c746e5",
-      "name": "HTTP - Zendesk List All Fields",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        400,
-        2736
-      ],
-      "credentials": {
-        "zendeskApi": {
-          "id": "Nd6nYzUYdeDBS3Gj",
-          "name": "Equinox Zendesk Account"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "jsCode": "const fields = Array.isArray($json.ticket_fields) ? $json.ticket_fields : [];\n\nreturn fields.map(f => ({\n  json: {\n    id: f.id,\n    title: f.title,\n    type: f.type,\n    tag: f.tag ?? null,\n    active: f.active,\n    required: f.required ?? null,\n    custom_field_options: Array.isArray(f.custom_field_options)\n      ? f.custom_field_options.map(o => ({\n          name: o.name,\n          value: o.value,\n          default: o.default ?? false\n        }))\n      : null\n  }\n}));"
-      },
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        608,
-        2736
-      ],
-      "id": "4c20d55c-b302-45c6-84b0-220484eae5ee",
-      "name": "Code - Shrink Ticket Fields"
-    },
-    {
-      "parameters": {
         "jsCode": "const data = $getWorkflowStaticData('global');\nconst row = $json || {};\n\ndata.sync_pages_loaded = (data.sync_pages_loaded || 0) + 1;\n\ndata.sync_input_rows = (data.sync_input_rows || 0) + Number(row.parsed_rows || row.input_rows || 0);\n\ndata.sync_upserted_rows = (data.sync_upserted_rows || 0) + Number(row.upserted_rows || 0);\n\nreturn [{\n  json: {\n    input_rows: Number(row.input_rows || 0),\n    upserted_rows: Number(row.upserted_rows || 0),\n    batch_count: Number(row.batch_count || 0),\n    end_of_stream: row.end_of_stream === true,\n    next_page_url: row.next_page_url || null\n  }\n}];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2720,
-        1376
+        3872,
+        1840
       ],
       "id": "ec3cb6c1-007e-42cc-be5d-1953d412305d",
       "name": "Code - Accumulate Sync Totals"
@@ -837,8 +714,8 @@
       "type": "n8n-nodes-base.splitInBatches",
       "typeVersion": 3,
       "position": [
-        1824,
-        1392
+        2976,
+        1856
       ],
       "id": "7f3b8407-962d-4944-a82c-f68862ac84d7",
       "name": "Loop Over Items"
@@ -850,8 +727,8 @@
       "type": "n8n-nodes-base.wait",
       "typeVersion": 1.1,
       "position": [
-        2160,
-        1456
+        3312,
+        1920
       ],
       "id": "efc83fa5-cc6d-44bf-ab33-fae8c1130268",
       "name": "Wait",
@@ -868,8 +745,8 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
       "position": [
-        880,
-        2048
+        896,
+        2496
       ],
       "credentials": {
         "postgres": {
@@ -889,8 +766,8 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
       "position": [
-        2000,
-        2112
+        2016,
+        2560
       ],
       "credentials": {
         "postgres": {
@@ -906,8 +783,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1136,
-        2048
+        1152,
+        2496
       ],
       "id": "051fe73e-2967-4639-a1fd-46154c1a2219",
       "name": "Code - Batch Ticket IDs"
@@ -921,8 +798,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1776,
-        2112
+        1792,
+        2560
       ]
     },
     {
@@ -932,8 +809,8 @@
       "type": "n8n-nodes-base.splitInBatches",
       "typeVersion": 3,
       "position": [
-        1344,
-        2048
+        1360,
+        2496
       ],
       "id": "20d405f5-83ef-46aa-9f82-b2ffb0e1ab77",
       "name": "Loop Over SLA Batches"
@@ -950,8 +827,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
       "position": [
-        1568,
-        2112
+        1584,
+        2560
       ],
       "credentials": {
         "zendeskApi": {
@@ -969,8 +846,8 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
       "position": [
-        2320,
-        2032
+        2336,
+        2480
       ],
       "id": "31771cec-efe0-4670-b304-f52f541ae3b7",
       "name": "Postgres - Final SLA Count",
@@ -983,25 +860,8 @@
     },
     {
       "parameters": {
-        "httpMethod": "POST",
-        "path": "zendesk-metrics-backfill",
-        "responseMode": "responseNode",
-        "options": {}
-      },
-      "id": "91e0e6d5-fc1f-4fdd-9d02-53b05b8d7b22",
-      "name": "Webhook - Backfill",
-      "type": "n8n-nodes-base.webhook",
-      "typeVersion": 2,
-      "position": [
-        400,
-        2048
-      ],
-      "webhookId": "41294c02-6409-4f5c-b571-725db5df86d9"
-    },
-    {
-      "parameters": {
         "operation": "executeQuery",
-        "query": "with final_count as (\n  select count(*) as total_rows_in_fact\n  from public.support_ticket_metrics_fact\n),\nmark_complete as (\n  insert into public.sync_progress (\n    run_id,\n    flow_name,\n    status,\n    current_batch,\n    total_batches,\n    batch_size,\n    updated_rows,\n    note,\n    updated_at\n  )\n  values (\n    '{{ (($json.run_id || \"ticket-sync-run\") + \"\").replace(/'/g, \"''\") }}',\n    'ticket_sync',\n    'completed',\n    {{ $json.total_batches || 0 }},\n    {{ $json.total_batches || 0 }},\n    0,\n    {{ $json.upserted_rows || 0 }},\n    'Ticket sync completed',\n    now()\n  )\n  on conflict (run_id) do update set\n    flow_name = excluded.flow_name,\n    status = excluded.status,\n    current_batch = excluded.current_batch,\n    total_batches = excluded.total_batches,\n    batch_size = excluded.batch_size,\n    updated_rows = public.sync_progress.updated_rows,\n    note = excluded.note,\n    updated_at = now()\n  returning id\n)\nselect\n  {{ $json.status ? `'${String($json.status).replace(/'/g, \"''\")}'` : `'success'` }}::text as status,\n  {{ $json.form_id || 'null' }}::bigint as form_id,\n  {{ $json.form_name ? `'${String($json.form_name).replace(/'/g, \"''\")}'` : 'null' }}::text as form_name,\n  {{ $json.date_from ? `'${String($json.date_from).replace(/'/g, \"''\")}'` : 'null' }}::text as date_from,\n  {{ $json.date_to ? `'${String($json.date_to).replace(/'/g, \"''\")}'` : 'null' }}::text as date_to,\n  {{ $json.total_found || 0 }}::integer as total_found,\n  {{ $json.pages_loaded || 0 }}::integer as pages_loaded,\n  {{ $json.input_rows || 0 }}::integer as input_rows,\n  {{ $json.upserted_rows || 0 }}::integer as upserted_rows,\n  (select total_rows_in_fact from final_count) as total_rows_in_fact;",
+        "query": "with final_count as (\n  select count(*) as total_rows_in_fact\n  from public.support_ticket_metrics_fact\n),\nmark_complete as (\n  update public.sync_progress\n  set\n    flow_name     = 'ticket_sync',\n    status        = 'completed',\n    current_batch = total_batches,\n    batch_size    = 0,\n    updated_rows  = coalesce(updated_rows, 0),\n    note          = 'Ticket sync completed — ' || coalesce(updated_rows, 0)::text || ' rows upserted',\n    updated_at    = now()\n  where run_id = '{{ (($json.run_id || \"ticket-sync-run\") + \"\").replace(/'/g, \"''\") }}'\n  returning run_id, updated_rows\n)\nselect\n  'completed'::text                             as status,\n  {{ $json.form_id || 'null' }}::bigint         as form_id,\n  {{ $json.form_name ? `'${String($json.form_name).replace(/'/g, \"''\"  )}'` : 'null' }}::text as form_name,\n  {{ $json.date_from ? `'${String($json.date_from).replace(/'/g, \"''\")}'` : 'null' }}::text as date_from,\n  {{ $json.date_to   ? `'${String($json.date_to  ).replace(/'/g, \"''\")}'` : 'null' }}::text as date_to,\n  (select updated_rows from mark_complete)      as upserted_rows,\n  (select total_rows_in_fact from final_count)  as total_rows_in_fact;\n",
         "options": {}
       },
       "id": "deb4cfb9-e2b4-466f-8260-d4f75c7097b9",
@@ -1009,8 +869,8 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
       "position": [
-        3824,
-        1392
+        2048,
+        1632
       ],
       "alwaysOutputData": true,
       "credentials": {
@@ -1029,8 +889,8 @@
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
       "position": [
-        2592,
-        2032
+        2608,
+        2480
       ],
       "id": "a628e93f-80df-4c75-82f7-9edd257ede2b",
       "name": "Respond to Backfill Webhook"
@@ -1042,68 +902,875 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        656,
-        2048
+        672,
+        2496
       ],
       "id": "82005b97-5fc3-4296-a767-981ab50eee20",
       "name": "Code - Parse Backfill Params"
     },
     {
       "parameters": {
-        "jsCode": "const tickets = $json.results || [];\n\nif (tickets.length === 0) {\n  return [{ json: { error: 'no tickets found' } }];\n}\n\nconst tagFrequency = {};\nconst customFieldSummary = {};\nconst kaTags = new Set();\n\nfor (const ticket of tickets) {\n  // Check tags - Zendesk Knowledge Capture stores linked articles as ka_ARTICLEID tags\n  const tags = ticket.tags || [];\n  for (const tag of tags) {\n    tagFrequency[tag] = (tagFrequency[tag] || 0) + 1;\n    if (tag.startsWith('ka_')) kaTags.add(tag);\n  }\n\n  // Check custom fields for any non-null values we haven't mapped yet\n  const fields = ticket.custom_fields || [];\n  for (const f of fields) {\n    if (f.value !== null && f.value !== '' && f.value !== false) {\n      if (!customFieldSummary[f.id]) {\n        customFieldSummary[f.id] = {\n          field_id: f.id,\n          sample_values: new Set()\n        };\n      }\n      customFieldSummary[f.id].sample_values.add(String(f.value).slice(0, 80));\n    }\n  }\n}\n\n// Identify any tags that look like KB/article references\nconst articleRelatedTags = Object.entries(tagFrequency)\n  .filter(([tag]) =>\n    tag.startsWith('ka_') ||\n    tag.includes('kb_') ||\n    tag.includes('article') ||\n    tag.includes('knowledge')\n  )\n  .map(([tag, count]) => ({ tag, count }))\n  .sort((a, b) => b.count - a.count);\n\n// Serialize custom field summary\nconst fieldList = Object.values(customFieldSummary).map(f => ({\n  field_id: f.field_id,\n  sample_values: [...f.sample_values].slice(0, 3)\n}));\n\nreturn [{\n  json: {\n    tickets_sampled: tickets.length,\n    ka_tags_found: [...kaTags],\n    article_related_tags: articleRelatedTags,\n    all_custom_fields_with_values: fieldList,\n    note: 'ka_ tags = Knowledge Capture article links. Check article_related_tags first.'\n  }\n}];\n"
+        "jsCode": "const body = $json.body || $json || {};\n\nconst formId = String(body.form_id || '');\nconst formName = body.form_name || null;\nconst dateFrom = body.date_from;\nconst dateTo = body.date_to;\n\nif (!formId || !dateFrom || !dateTo) {\n  throw new Error('form_id, date_from, and date_to are required');\n}\n\nconst zendeskQuery = `type:ticket ticket_form_id:${formId} created>=${dateFrom} created<${dateTo} custom_field_1260824167549:support_`;\n\nreturn [{\n  json: {\n    form_id: formId,\n    form_name: formName,\n    date_from: dateFrom,\n    date_to: dateTo,\n    zendesk_query: zendeskQuery\n  }\n}];"
+      },
+      "id": "24537f47-e620-41f1-91c7-715410369a05",
+      "name": "Code - Prep Count Query",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        496,
+        1648
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://kipuhealth.zendesk.com/api/v2/search/count.json",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "zendeskApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "query",
+              "value": "={{ $json.zendesk_query }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "ca1ca616-3fcf-4541-9748-3e1cb25f6cce",
+      "name": "HTTP - Count Full Range",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        752,
+        1648
+      ],
+      "credentials": {
+        "zendeskApi": {
+          "id": "Nd6nYzUYdeDBS3Gj",
+          "name": "Equinox Zendesk Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const prepData = $('Code - Prep Count Query').first().json;\nconst totalCount = Number($json.count || 0);\n\nconst formId = prepData.form_id;\nconst formName = prepData.form_name || null;\nconst dateFrom = prepData.date_from;\nconst dateTo = prepData.date_to;\n\nconst rangeStart = new Date(dateFrom + 'T00:00:00Z');\nconst rangeEnd = new Date(dateTo + 'T00:00:00Z');\nconst fullRangeDays = Math.ceil((rangeEnd - rangeStart) / (1000 * 60 * 60 * 24));\n\n// Target 750 tickets/chunk — leaves buffer below 1000 cap\n// Count check node will catch any chunk that still exceeds limit\nconst avgPerDay = totalCount / fullRangeDays;\nconst CHUNK_DAYS = Math.max(1, Math.floor(750 / avgPerDay));\n\nconst runId = `ticket-sync-${formId}-${dateFrom.replace(/-/g, '')}-${Date.now()}`;\n\nconst chunks = [];\nlet cursor = new Date(rangeStart);\n\nwhile (cursor < rangeEnd) {\n  const chunkFrom = cursor.toISOString().slice(0, 10);\n  const nextCursor = new Date(cursor);\n  nextCursor.setUTCDate(nextCursor.getUTCDate() + CHUNK_DAYS);\n  if (nextCursor > rangeEnd) nextCursor.setTime(rangeEnd.getTime());\n  const chunkTo = nextCursor.toISOString().slice(0, 10);\n\n  chunks.push({\n    run_id: runId,\n    form_id: formId,\n    form_name: formName,\n    date_from: chunkFrom,\n    date_to: chunkTo,\n    total_count_estimate: totalCount,\n    chunk_days_used: CHUNK_DAYS,\n    avg_per_day: Math.round(avgPerDay)\n  });\n\n  cursor = nextCursor;\n}\n\nconst totalChunks = chunks.length;\nreturn chunks.map((c, i) => ({\n  json: { ...c, chunk_num: i + 1, total_chunks: totalChunks }\n}));\n"
+      },
+      "id": "bb62dad5-8808-4dc8-9f32-c36cfef25e3d",
+      "name": "Code - Build Chunk List",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1008,
+        1648
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO public.sync_progress (\n  run_id,\n  flow_name,\n  status,\n  current_batch,\n  total_batches,\n  batch_size,\n  updated_rows,\n  note,\n  updated_at\n)\nVALUES (\n  '{{ (($json.run_id || \"ticket-sync-run\") + \"\").replace(/'/g, \"''\") }}',\n  'ticket_sync',\n  'running',\n  0,\n  {{ $json.total_chunks || 0 }},\n  0,\n  0,\n  'Sync started: {{ ($json.date_from || \"\").replace(/'/g, \"''\") }} to {{ ($json.date_to || \"\").replace(/'/g, \"''\") }} — {{ $json.total_chunks || 0 }} chunks, ~{{ $json.total_count_estimate || 0 }} tickets',\n  now()\n)\nON CONFLICT (run_id) DO NOTHING;",
+        "options": {}
+      },
+      "id": "f7130551-ad2f-493a-aef2-24b3083bc171",
+      "name": "Postgres - Init Sync Progress",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1264,
+        1760
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "XjgfokqBkBtAIKkz",
+          "name": "Equinox Supabase - Zendesk Ticket Metrics"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "fc178b0f-8b4c-4f0e-89b7-ac97110615e9",
+      "name": "Split in Batches - Chunk Loop",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1552,
+        1648
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 4
+      },
+      "id": "a5ce7c76-a7ce-4197-bdf4-1e141a4378f6",
+      "name": "Wait - Between Chunks",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        4304,
+        2224
+      ],
+      "webhookId": "b2c3d4e5-f6a7-8901-bcde-f12345678906"
+    },
+    {
+      "parameters": {
+        "url": "=https://kipuhealth.zendesk.com/api/v2/search/count.json",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "zendeskApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "query",
+              "value": "==type:ticket ticket_form_id:{{ $json.form_id }} created>={{ $json.date_from }} created<{{ $json.date_to }} custom_field_1260824167549:support_"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "4661fae2-2c00-4af0-8ff2-3d8146e095fe",
+      "name": "HTTP - Count Chunk",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1632,
+        1856
+      ],
+      "credentials": {
+        "zendeskApi": {
+          "id": "Nd6nYzUYdeDBS3Gj",
+          "name": "Equinox Zendesk Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "zendesk-id-collect",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "e851f22a-aa3e-4c20-9c09-d81980074f0b",
+      "name": "Webhook - Run ID Collect",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        336,
+        3120
+      ],
+      "webhookId": "99db3565-a4c3-4e91-afbf-1a6d88813dcf"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json.body || $json || {};\nconst formId = String(body.form_id || '1900001563224');\nconst dateFrom = body.date_from || '2026-01-01';\nconst dateTo = body.date_to || '2026-02-01';\nconst query = `type:ticket ticket_form_id:${formId} created>=${dateFrom} created<${dateTo} custom_field_1260824167549:support_`;\nconst url = `https://kipuhealth.zendesk.com/api/v2/search.json?query=${encodeURIComponent(query)}&page=1&per_page=100&sort_by=created_at&sort_order=asc`;\nconst data = $getWorkflowStaticData('global');\ndata.id_collect_url = url;\ndata.id_collect_done = false;\nreturn [{ json: { url, form_id: formId, date_from: dateFrom, date_to: dateTo } }];\n"
+      },
+      "id": "ee2806a4-cb36-43e7-b1a4-9c7bb289381d",
+      "name": "Code - ID Prep",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        576,
+        3120
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "zendeskApi",
+        "options": {}
+      },
+      "id": "0ea39b28-7c75-4a50-8f39-fbe9c77473b3",
+      "name": "HTTP - ID Search Page",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        848,
+        3120
+      ],
+      "credentials": {
+        "zendeskApi": {
+          "id": "Nd6nYzUYdeDBS3Gj",
+          "name": "Equinox Zendesk Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const results = Array.isArray($json.results) ? $json.results : [];\nconst ids = results.map(r => r.id).filter(Boolean);\nreturn [{\n  json: {\n    ids_json: JSON.stringify(ids.map(id => ({ ticket_id: id }))),\n    ids_count: ids.length,\n    next_page_url: $json.next_page || null,\n    end_of_stream: !$json.next_page\n  }\n}];\n"
+      },
+      "id": "79739048-edc5-44b8-beb1-30c7d49af086",
+      "name": "Code - ID Extract Page",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1104,
+        3120
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO public._jan_id_validation (ticket_id)\nSELECT (row->>'ticket_id')::bigint\nFROM jsonb_array_elements(\n  '{{ ($json.ids_json || \"[]\").replace(/'/g, \"''\") }}'::jsonb\n) AS row\nON CONFLICT (ticket_id) DO NOTHING;\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1328,
+        2976
+      ],
+      "id": "05404abc-4393-4a9c-af23-1c4366562139",
+      "name": "Postgres - ID Insert Batch",
+      "credentials": {
+        "postgres": {
+          "id": "XjgfokqBkBtAIKkz",
+          "name": "Equinox Supabase - Zendesk Ticket Metrics"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "01611089-3b0f-4ddf-bba4-65629d715e26",
+              "leftValue": "={{ $json.end_of_stream }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1520,
+        3120
+      ],
+      "id": "3014a70d-4622-441a-a738-03ffd56dd6c7",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "amount": 1
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1744,
+        3104
+      ],
+      "id": "5cb1f84d-4265-44d5-8af6-05619c16fd02",
+      "name": "Wait1",
+      "webhookId": "099ebf8b-97b3-4561-8487-81b1f530141c"
+    },
+    {
+      "parameters": {
+        "jsCode": "const url = $('Code - ID Extract Page').first().json.next_page_url;\nreturn [{ json: { url } }];\n"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1152,
-        2784
+        1936,
+        3104
       ],
-      "id": "9de2df20-9efb-451f-a9f1-283a80c674de",
+      "id": "935b19c5-762b-4f38-b5eb-ace571e0439d",
+      "name": "Code - ID Next Page"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "e193696e-48b3-4aee-925e-c355b1f2fadb",
+      "name": "Webhook Respond - Run ID Collect",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1824,
+        3424
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const tickets = Array.isArray($('HTTP - Backfill Show Many').first().json.tickets)\n  ? $('HTTP - Backfill Show Many').first().json.tickets\n  : [];\n\nreturn tickets.map(ticket => ({\n  json: {\n    ticket,\n    form_name: 'EMR Default Form'\n  }\n}));\n"
+      },
+      "id": "8b6f86d0-2dc6-4922-859a-9b9faced955e",
+      "name": "Code - Expand Tickets For Metrics1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        4016
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ `https://kipuhealth.zendesk.com/api/v2/tickets/${$json.ticket.id}/metrics.json` }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "zendeskApi",
+        "options": {}
+      },
+      "id": "d2426997-e116-4221-bd7d-292ec8091bc9",
+      "name": "HTTP - Fetch Ticket Metrics1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1616,
+        3760
+      ],
+      "credentials": {
+        "zendeskApi": {
+          "id": "Nd6nYzUYdeDBS3Gj",
+          "name": "Equinox Zendesk Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "with input_payload as (\n  select\n    '{{ ($json.ticket_rows_json || \"[]\").replace(/'/g, \"''\") }}'::jsonb as rows_json,\n    {{ $json.input_rows || $json.batch_count || 0 }}::integer as batch_count,\n    {{ $json.end_of_stream ? 'true' : 'false' }}::boolean as end_of_stream,\n    {{ $json.next_page_url ? `'${String($json.next_page_url).replace(/'/g, \"''\")}'` : 'null' }}::text as next_page_url\n),\nparsed_rows as (\n  select\n    (row->>'ticket_id')::bigint as ticket_id,\n    (row->>'ticket_created_at')::timestamptz as ticket_created_at,\n    (row->>'ticket_updated_at')::timestamptz as ticket_updated_at,\n    (row->>'ticket_solved_at')::timestamptz as ticket_solved_at,\n    row->>'status' as status,\n    row->>'channel' as channel,\n    (row->>'form_id')::bigint as form_id,\n    row->>'form_name' as form_name,\n    (row->>'assignee_id')::bigint as assignee_id,\n    (row->>'group_id')::bigint as group_id,\n    row->>'csat_score' as csat_score,\n    (row->>'first_reply_time_business_minutes')::integer as first_reply_time_business_minutes,\n    (row->>'next_reply_time_business_minutes')::integer as next_reply_time_business_minutes,\n    (row->>'pausable_update_time_business_minutes')::integer as pausable_update_time_business_minutes,\n    (row->>'requester_wait_time_business_minutes')::integer as requester_wait_time_business_minutes,\n    (row->>'full_resolution_time_business_minutes')::integer as full_resolution_time_business_minutes,\n    (row->>'one_business_day_solve_flag')::boolean as one_business_day_solve_flag,\n    (row->>'sla_breached_flag')::boolean as sla_breached_flag,\n    (row->>'article_linked_flag')::boolean as article_linked_flag,\n    (row->>'missed_call_flag')::boolean as missed_call_flag,\n    coalesce((row->>'ticket_count')::integer, 1) as ticket_count\n  from input_payload,\n  jsonb_array_elements(rows_json) as row\n),\nupserted as (\n  insert into public.support_ticket_metrics_fact (\n    ticket_id, ticket_created_at, ticket_updated_at, ticket_solved_at,\n    status, channel, form_id, form_name, assignee_id, group_id, csat_score,\n    first_reply_time_business_minutes, next_reply_time_business_minutes,\n    pausable_update_time_business_minutes, requester_wait_time_business_minutes,\n    full_resolution_time_business_minutes, one_business_day_solve_flag,\n    sla_breached_flag, article_linked_flag, missed_call_flag, ticket_count, synced_at\n  )\n  select\n    ticket_id, ticket_created_at, ticket_updated_at, ticket_solved_at,\n    status, channel, form_id, form_name, assignee_id, group_id, csat_score,\n    first_reply_time_business_minutes, next_reply_time_business_minutes,\n    pausable_update_time_business_minutes, requester_wait_time_business_minutes,\n    full_resolution_time_business_minutes, one_business_day_solve_flag,\n    sla_breached_flag, article_linked_flag, missed_call_flag, ticket_count, now()\n  from parsed_rows\n  on conflict (ticket_id) do update set\n    ticket_created_at = excluded.ticket_created_at,\n    ticket_updated_at = excluded.ticket_updated_at,\n    ticket_solved_at = excluded.ticket_solved_at,\n    status = excluded.status,\n    channel = excluded.channel,\n    form_id = excluded.form_id,\n    form_name = excluded.form_name,\n    assignee_id = excluded.assignee_id,\n    group_id = excluded.group_id,\n    csat_score = excluded.csat_score,\n    first_reply_time_business_minutes = excluded.first_reply_time_business_minutes,\n    next_reply_time_business_minutes = excluded.next_reply_time_business_minutes,\n    pausable_update_time_business_minutes = excluded.pausable_update_time_business_minutes,\n    requester_wait_time_business_minutes = excluded.requester_wait_time_business_minutes,\n    full_resolution_time_business_minutes = excluded.full_resolution_time_business_minutes,\n    one_business_day_solve_flag = excluded.one_business_day_solve_flag,\n    sla_breached_flag = excluded.sla_breached_flag,\n    article_linked_flag = excluded.article_linked_flag,\n    missed_call_flag = excluded.missed_call_flag,\n    ticket_count = excluded.ticket_count,\n    synced_at = now()\n  returning ticket_id\n),\nprogress as (\n  insert into public.sync_progress (\n    run_id, flow_name, status, current_batch, total_batches,\n    batch_size, updated_rows, note, updated_at\n  )\n  values (\n    '{{ (($json.run_id || \"ticket-sync-run\") + \"\").replace(/'/g, \"''\") }}',\n    'ticket_sync',\n    'running',\n    {{ $json.current_batch || 0 }},\n    {{ $json.total_batches || 0 }},\n    {{ $json.total_count_estimate || 0 }},\n    (select count(*) from upserted),\n    'Chunk {{ $json.current_batch || 0 }}/{{ $json.total_batches || 0 }} · Page {{ $json.page_num || 0 }}/{{ $json.total_pages || 0 }} · {{ $json.input_rows || 0 }} rows this page',\n    now()\n  )\n  on conflict (run_id) do update set\n    status = excluded.status,\n    current_batch = excluded.current_batch,\n    total_batches = excluded.total_batches,\n    batch_size = excluded.batch_size,\n    updated_rows = coalesce(public.sync_progress.updated_rows, 0) + excluded.updated_rows,\n    note = excluded.note,\n    updated_at = now()\n  returning id\n)\nselect\n  (select count(*) from upserted) as upserted_rows,\n  (select count(*) from parsed_rows) as parsed_rows,\n  (select batch_count from input_payload) as batch_count,\n  (select end_of_stream from input_payload) as end_of_stream,\n  (select next_page_url from input_payload) as next_page_url;\n",
+        "options": {}
+      },
+      "id": "4eb0a2e9-c57a-49eb-b381-8c609222b2f9",
+      "name": "Postgres - Upsert Tickets1",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2144,
+        4000
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "XjgfokqBkBtAIKkz",
+          "name": "Equinox Supabase - Zendesk Ticket Metrics"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "amount": 2
+      },
+      "id": "95006a0d-cb3f-4cb5-abff-a90953731b2b",
+      "name": "Wait - Between Sync Batches1",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2752,
+        3984
+      ],
+      "webhookId": "538d0804-15b0-4859-8a0f-2a2ac212f45e"
+    },
+    {
+      "parameters": {
+        "jsCode": "const batch = $('Split in Batches - Backfill Loop').first().json || {};\nconst showMany = $('HTTP - Backfill Show Many').first().json || {};\n\nconst tickets = Array.isArray(showMany.tickets) ? showMany.tickets : [];\nconst metricItems = $('HTTP - Fetch Ticket Metrics1').all();\n\nconst metricsByTicketId = {};\nfor (const item of metricItems) {\n  const metric = item.json?.ticket_metric || {};\n  if (metric.ticket_id != null) {\n    metricsByTicketId[String(metric.ticket_id)] = metric;\n  }\n}\n\nconst ARTICLE_LINKED_FIELD_IDS = [18158428639387, 25171038337691];\n\nfunction getCustomFieldValue(ticket, fieldIds) {\n  const fields = Array.isArray(ticket.custom_fields) ? ticket.custom_fields : [];\n  for (const fieldId of fieldIds) {\n    const match = fields.find(f => Number(f.id) === Number(fieldId));\n    if (match && match.value !== undefined && match.value !== null && match.value !== '') {\n      return match.value;\n    }\n  }\n  return null;\n}\n\nfunction hasAnyTag(ticket, tagList) {\n  const tags = Array.isArray(ticket.tags) ? ticket.tags : [];\n  return tagList.some(tag => tags.includes(tag));\n}\n\nfunction normalizeBoolean(value, trueValues = [], falseValues = []) {\n  if (value === true) return true;\n  if (value === false) return false;\n  if (value == null) return null;\n  const v = String(value).toLowerCase().trim();\n  if (['yes', 'true', '1'].includes(v)) return true;\n  if (['no', 'false', '0'].includes(v)) return false;\n  if (trueValues.map(x => String(x).toLowerCase()).includes(v)) return true;\n  if (falseValues.map(x => String(x).toLowerCase()).includes(v)) return false;\n  return null;\n}\n\nfunction getSlaBreachedFlag(ticket, metric) {\n  const policyMetrics = Array.isArray(ticket.slas?.policy_metrics)\n    ? ticket.slas.policy_metrics : [];\n  if (!policyMetrics.length) return null;\n  const solvedAt = metric?.solved_at ? new Date(metric.solved_at) : null;\n  return policyMetrics.some(m => {\n    if (!m.breach_at) return false;\n    if (solvedAt) return new Date(m.breach_at) < solvedAt;\n    return m.stage === 'breached';\n  });\n}\n\nconst rows = tickets.map(ticket => {\n  const metric = metricsByTicketId[String(ticket.id)] || {};\n  const resolution = metric.full_resolution_time_in_minutes?.business ?? null;\n\n  const articleLinkedRaw = getCustomFieldValue(ticket, ARTICLE_LINKED_FIELD_IDS);\n  let articleLinkedFlag = normalizeBoolean(\n    articleLinkedRaw,\n    ['kcs_linked_yes', 'kcslinked_yes'],\n    ['kcs_linked_no', 'kcslinked_no']\n  );\n  if (articleLinkedFlag == null) {\n    if (hasAnyTag(ticket, ['kcs_linked_yes', 'kcslinked_yes'])) articleLinkedFlag = true;\n    else if (hasAnyTag(ticket, ['kcs_linked_no', 'kcslinked_no'])) articleLinkedFlag = false;\n  }\n\n  return {\n    ticket_id: ticket.id ?? null,\n    ticket_created_at: ticket.created_at ?? null,\n    ticket_updated_at: ticket.updated_at ?? null,\n    ticket_solved_at: metric.solved_at ?? ticket.solved_at ?? null,\n    status: ticket.status ?? null,\n    channel: ticket.via?.channel ?? null,\n    form_id: ticket.ticket_form_id ?? null,\n    form_name: 'EMR Default Form',\n    assignee_id: ticket.assignee_id ?? null,\n    group_id: ticket.group_id ?? null,\n    csat_score: ticket.satisfaction_rating?.score ?? null,\n    first_reply_time_business_minutes: metric.reply_time_in_minutes?.business ?? null,\n    next_reply_time_business_minutes: null,\n    pausable_update_time_business_minutes: metric.on_hold_time_in_minutes?.business ?? null,\n    requester_wait_time_business_minutes: metric.requester_wait_time_in_minutes?.business ?? null,\n    full_resolution_time_business_minutes: resolution,\n    one_business_day_solve_flag: resolution != null ? resolution <= 480 : null,\n    sla_breached_flag: getSlaBreachedFlag(ticket, metric),\n    article_linked_flag: articleLinkedFlag,\n    missed_call_flag: null,\n    ticket_count: 1\n  };\n}).filter(row => row.ticket_id != null);\n\nreturn [{\n  json: {\n    run_id: `backfill-${Date.now()}`,\n    current_batch: Number(batch.batch_num || 0),\n    total_batches: Number(batch.total_batches || 0),\n    page_num: 1,\n    total_pages: 1,\n    expected_count: rows.length,\n    ticket_rows_json: JSON.stringify(rows),\n    ticket_count: rows.length,\n    input_rows: rows.length,\n    batch_count: rows.length,\n    total_count_estimate: 640,\n    next_page_url: null,\n    end_of_stream: true\n  }\n}];\n"
+      },
+      "id": "ae328265-73d4-4d5e-8506-f04184d2c270",
+      "name": "Code - Build Batch Payload1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1952,
+        4000
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $getWorkflowStaticData('global');\nconst row = $json || {};\n\ndata.sync_pages_loaded = (data.sync_pages_loaded || 0) + 1;\n\ndata.sync_input_rows = (data.sync_input_rows || 0) + Number(row.parsed_rows || row.input_rows || 0);\n\ndata.sync_upserted_rows = (data.sync_upserted_rows || 0) + Number(row.upserted_rows || 0);\n\nreturn [{\n  json: {\n    input_rows: Number(row.input_rows || 0),\n    upserted_rows: Number(row.upserted_rows || 0),\n    batch_count: Number(row.batch_count || 0),\n    end_of_stream: row.end_of_stream === true,\n    next_page_url: row.next_page_url || null\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2336,
+        4000
+      ],
+      "id": "3cac88ae-cb78-491d-a29c-af9d72428975",
+      "name": "Code - Accumulate Sync Totals1"
+    },
+    {
+      "parameters": {
+        "batchSize": 5,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1440,
+        4016
+      ],
+      "id": "f376561c-5a6b-4470-9311-c49e8c0e4428",
+      "name": "Loop Over Items1"
+    },
+    {
+      "parameters": {
+        "amount": 1
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1792,
+        3760
+      ],
+      "id": "f1b47ebc-f9ec-4f01-8b4b-0689ee535cf8",
+      "name": "Wait2",
+      "webhookId": "ebbfbdfc-a8bf-4dec-b4fd-d589e72e9e36"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json.body || $json || {};\nconst ids = body.ticket_ids || [];\nconst BATCH_SIZE = 100;\nconst batches = [];\nfor (let i = 0; i < ids.length; i += BATCH_SIZE) {\n  batches.push({\n    json: {\n      ids_csv: ids.slice(i, i + BATCH_SIZE).join(','),\n      batch_num: Math.floor(i / BATCH_SIZE) + 1,\n      total_batches: Math.ceil(ids.length / BATCH_SIZE)\n    }\n  });\n}\nreturn batches;\n"
+      },
+      "id": "b2dc11eb-3732-415f-a056-e76245adfb3c",
+      "name": "Code - Batch Backfill IDs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        528,
+        3936
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        768,
+        3936
+      ],
+      "id": "275daa19-d92d-4f5b-9935-94d0be24d136",
+      "name": "Split in Batches - Backfill Loop"
+    },
+    {
+      "parameters": {
+        "url": "={{ 'https://kipuhealth.zendesk.com/api/v2/tickets/show_many.json?ids=' + $json.ids_csv + '&include=slas' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "zendeskApi",
+        "options": {}
+      },
+      "id": "6a09a395-e4b9-4fcb-b83f-a0bac2385c56",
+      "name": "HTTP - Backfill Show Many",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1008,
+        4016
+      ],
+      "credentials": {
+        "zendeskApi": {
+          "id": "Nd6nYzUYdeDBS3Gj",
+          "name": "Equinox Zendesk Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "sync-more",
+              "leftValue": "={{ $json.end_of_stream }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "97fc8ddf-ae8b-4c18-b958-e1bd91b0ae7a",
+      "name": "More Backfill Batches?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2512,
+        4000
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "zendesk-id-backfill",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "07550202-6900-4d86-bfa1-31d7e209ed49",
+      "name": "Webhook - Run ID Backfill",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        288,
+        3936
+      ],
+      "webhookId": "99db3565-a4c3-4e91-afbf-1a6d88813dcf"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "428b0303-726c-4e2a-ae0e-a3aede27944a",
+      "name": "Webhook Respond - Run ID Backfill",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1008,
+        3840
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "zendesk-metrics-backfill",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "91e0e6d5-fc1f-4fdd-9d02-53b05b8d7b22",
+      "name": "Webhook - Backfill SLAs",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        416,
+        2496
+      ],
+      "webhookId": "41294c02-6409-4f5c-b571-725db5df86d9"
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{\n  json: {\n    url: 'https://kipuhealth.zendesk.com/api/v2/search/export.json?query=type:ticket ticket_form_id:1900001563224 created>=2026-03-25 created<2026-03-31 custom_field_1260824167549:support_&filter[type]=ticket',\n    total_count: 0\n  }\n}]\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        64,
+        4352
+      ],
+      "id": "65d19f87-0a39-4a6e-a610-7f05beb2c1d4",
+      "name": "Code - Init"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "zendeskApi",
+        "options": {}
+      },
+      "id": "2f5108e6-3f88-4d98-be93-3727feaaa97e",
+      "name": "HTTP - Export Page",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        288,
+        4352
+      ],
+      "credentials": {
+        "zendeskApi": {
+          "id": "Nd6nYzUYdeDBS3Gj",
+          "name": "Equinox Zendesk Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const results = $json.results || [];\nconst prevTotal = $('Code - Init').first().json.total_count || 0;\n\n// accumulate in static data\nconst data = $getWorkflowStaticData('global');\ndata.export_count = (data.export_count || 0) + results.length;\n\nreturn [{\n  json: {\n    url: $json.links?.next || null,\n    total_count: data.export_count,\n    has_more: $json.meta?.has_more,\n    pages_so_far: Math.ceil(data.export_count / 100)\n  }\n}]\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        496,
+        4352
+      ],
+      "id": "23e7eebf-6931-4b19-bcfb-53016f2e048f",
+      "name": "Code - Count + Next"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "56d6bbfa-6652-42aa-ab3d-2cc7a7bbd1bb",
+              "leftValue": "={{ $json.has_more }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        704,
+        4352
+      ],
+      "id": "5ea5ff2d-99d7-4d41-917b-7f43312f7bde",
+      "name": "If1"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $getWorkflowStaticData('global');\nreturn [{\n  json: {\n    total_exported: data.export_count,\n    expected: 983,\n    match: data.export_count === 983\n  }\n}]\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        976,
+        4368
+      ],
+      "id": "0979b2c7-9752-4e0f-8165-00d16adefa56",
+      "name": "Code - Show Result"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "export-sync",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -80,
+        4640
+      ],
+      "id": "08e9f727-b1a5-4de0-a958-7aeba3365f66",
+      "name": "Webhook - Export Sync",
+      "webhookId": "5a5b72f3-8d92-4f75-b54f-b1dd5d043e0e"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $getWorkflowStaticData('global');\ndata.ticket_ids = [];\ndata.export_count = 0;\n\nconst body = $json.body || $json;\nconst date_from = body.date_from;\nconst date_to = body.date_to;\nconst form_id = body.form_id;\nconst form_name = body.form_name;\n\nif (!form_id || !date_from || !date_to) {\n  throw new Error('form_id, form_name, date_from, and date_to are required');\n}\n\ndata.form_name = form_name;\n\nconst queryParts = [\n  'type:ticket',\n  `ticket_form_id:${form_id}`,\n  `created>=${date_from}`,\n  `created<${date_to}`\n];\n\nqueryParts.push('custom_field_1260824167549:support_');\n\n\nconst query = queryParts.join(' ');\nconst url = `https://kipuhealth.zendesk.com/api/v2/search/export.json?query=${encodeURIComponent(query)}&filter[type]=ticket`;\n\nreturn [{ json: { url, date_from, date_to, form_id, form_name } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        112,
+        4640
+      ],
+      "id": "03cae5e3-fc3d-45ff-b64e-552f335035e6",
+      "name": "Code - Build Export URL"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "zendeskApi",
+        "options": {}
+      },
+      "id": "db7dac16-0d2f-461e-b8d4-ce8620e5037d",
+      "name": "HTTP - Fetch Export Page",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        320,
+        4640
+      ],
+      "credentials": {
+        "zendeskApi": {
+          "id": "Nd6nYzUYdeDBS3Gj",
+          "name": "Equinox Zendesk Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const results = $json.results || [];\nconst data = $getWorkflowStaticData('global');\n\nif (!data.ticket_ids) data.ticket_ids = [];\ndata.ticket_ids = data.ticket_ids.concat(results.map(t => t.id));\n\nreturn [{\n  json: {\n    url: $json.links?.next || null,\n    total_count: data.ticket_ids.length,\n    has_more: $json.meta?.has_more,\n    pages_so_far: Math.ceil(data.ticket_ids.length / 100)\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        528,
+        4640
+      ],
+      "id": "2c19458c-a760-4984-900b-47c647328ee0",
+      "name": "Code - Accumulate + Next URL"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "56d6bbfa-6652-42aa-ab3d-2cc7a7bbd1bb",
+              "leftValue": "={{ $json.has_more }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        736,
+        4640
+      ],
+      "id": "eec0b784-ebe5-4844-8b67-7e6afc31df7d",
+      "name": "If - Has More Pages"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1888,
+        4656
+      ],
+      "id": "3f16d966-53e0-4f0d-9bf8-14fd4af2ef1d",
+      "name": "Respond to Export Sync Webhook"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO support_ticket_metrics_fact (\n  ticket_id, ticket_created_at, ticket_updated_at, ticket_solved_at,\n  status, channel, form_id, form_name,\n  assignee_id, group_id, csat_score,\n  first_reply_time_business_minutes, next_reply_time_business_minutes,\n  pausable_update_time_business_minutes, requester_wait_time_business_minutes,\n  full_resolution_time_business_minutes, one_business_day_solve_flag,\n  ticket_count, synced_at, sla_breached_flag, article_linked_flag, missed_call_flag\n)\nVALUES (\n  {{ $json.ticket_id }},\n  '{{ $json.ticket_created_at }}',\n  '{{ $json.ticket_updated_at }}',\n  {{ $json.ticket_solved_at ? `'${$json.ticket_solved_at}'` : 'NULL' }},\n  '{{ $json.status }}',\n  {{ $json.channel ? `'${$json.channel}'` : 'NULL' }},\n  {{ $json.form_id || 'NULL' }},\n  NULL,\n  {{ $json.assignee_id || 'NULL' }},\n  {{ $json.group_id || 'NULL' }},\n  {{ $json.csat_score ? `'${$json.csat_score}'` : 'NULL' }},\n  {{ $json.first_reply_time_business_minutes ?? 'NULL' }},\n  {{ $json.next_reply_time_business_minutes ?? 'NULL' }},\n  {{ $json.pausable_update_time_business_minutes ?? 'NULL' }},\n  {{ $json.requester_wait_time_business_minutes ?? 'NULL' }},\n  {{ $json.full_resolution_time_business_minutes ?? 'NULL' }},\n  {{ $json.one_business_day_solve_flag ?? 'NULL' }},\n  1,\n  '{{ $json.synced_at }}',\n  {{ $json.sla_breached_flag ?? 'NULL' }},\n  {{ $json.article_linked_flag ?? 'NULL' }},\n  {{ $json.missed_call_flag ?? 'NULL' }}\n)\nON CONFLICT (ticket_id) DO UPDATE SET\n  ticket_updated_at = EXCLUDED.ticket_updated_at,\n  ticket_solved_at = EXCLUDED.ticket_solved_at,\n  status = EXCLUDED.status,\n  channel = EXCLUDED.channel,\n  csat_score = EXCLUDED.csat_score,\n  first_reply_time_business_minutes = EXCLUDED.first_reply_time_business_minutes,\n  next_reply_time_business_minutes = EXCLUDED.next_reply_time_business_minutes,\n  pausable_update_time_business_minutes = EXCLUDED.pausable_update_time_business_minutes,\n  requester_wait_time_business_minutes = EXCLUDED.requester_wait_time_business_minutes,\n  full_resolution_time_business_minutes = EXCLUDED.full_resolution_time_business_minutes,\n  one_business_day_solve_flag = EXCLUDED.one_business_day_solve_flag,\n  sla_breached_flag = EXCLUDED.sla_breached_flag,\n  article_linked_flag = EXCLUDED.article_linked_flag,\n  missed_call_flag = EXCLUDED.missed_call_flag,\n  synced_at = EXCLUDED.synced_at;\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1680,
+        4656
+      ],
+      "id": "83b9d1f6-1398-4cbf-ab5e-b36c803a6a78",
+      "name": "Execute a SQL query",
+      "credentials": {
+        "postgres": {
+          "id": "XjgfokqBkBtAIKkz",
+          "name": "Equinox Supabase - Zendesk Ticket Metrics"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "=https://kipuhealth.zendesk.com/api/v2/search/count.json?query=type:ticket ticket_form_id:32729757998235 created>=2026-03-01 created<2026-04-01\n",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "zendeskApi",
+        "options": {}
+      },
+      "id": "2275a802-6c22-4b6a-9d01-1d6643dfba74",
+      "name": "HTTP - One Time Calls",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        336,
+        4944
+      ],
+      "credentials": {
+        "zendeskApi": {
+          "id": "Nd6nYzUYdeDBS3Gj",
+          "name": "Equinox Zendesk Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $getWorkflowStaticData('global');\nconst ids = data.ticket_ids || [];\n\ndata.ticket_ids = [];\ndata.export_count = 0;\n\nconst batches = [];\nfor (let i = 0; i < ids.length; i += 100) {\n  batches.push(ids.slice(i, i + 100));\n}\n\nreturn batches.map(batch => ({\n  json: {\n    ids: batch.join(','),\n    count: batch.length\n  }\n}));\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1008,
+        4656
+      ],
+      "id": "838d08e4-4b8d-4952-bb0f-87b230c25dae",
+      "name": "Code - Batch for Show Many"
+    },
+    {
+      "parameters": {
+        "url": "=https://kipuhealth.zendesk.com/api/v2/tickets/show_many.json?ids={{ $json.ids }}&include=metric_sets,slas\n",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "zendeskApi",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1216,
+        4656
+      ],
+      "id": "f7fbe89a-f475-4e70-860f-e5c4f01e1ddf",
+      "name": "HTTP - Show Many + Metrics",
+      "credentials": {
+        "zendeskApi": {
+          "id": "Nd6nYzUYdeDBS3Gj",
+          "name": "Equinox Zendesk Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const ARTICLE_LINKED_FIELD_IDS = [18158428639387, 25171038337691];\n\nfunction getCustomFieldValue(ticket, fieldIds) {\n  const fields = Array.isArray(ticket.custom_fields) ? ticket.custom_fields : [];\n  for (const fieldId of fieldIds) {\n    const match = fields.find(f => Number(f.id) === Number(fieldId));\n    if (match && match.value != null && match.value !== '') return match.value;\n  }\n  return null;\n}\n\nfunction hasAnyTag(ticket, tagList) {\n  const tags = Array.isArray(ticket.tags) ? ticket.tags : [];\n  return tagList.some(tag => tags.includes(tag));\n}\n\nfunction getArticleLinkedFlag(ticket) {\n  const raw = getCustomFieldValue(ticket, ARTICLE_LINKED_FIELD_IDS);\n  if (raw === 'kcs_linked_yes' || raw === 'kcslinked_yes') return true;\n  if (raw === 'kcs_linked_no' || raw === 'kcslinked_no') return false;\n  if (hasAnyTag(ticket, ['kcs_linked_yes', 'kcslinked_yes'])) return true;\n  if (hasAnyTag(ticket, ['kcs_linked_no', 'kcslinked_no'])) return false;\n  return null;\n}\n\nfunction getSlaBreachedFlag(ticket, metric) {\n  const policyMetrics = Array.isArray(ticket.slas?.policy_metrics)\n    ? ticket.slas.policy_metrics : [];\n  if (!policyMetrics.length) return null;\n  const solvedAt = metric?.solved_at ? new Date(metric.solved_at) : null;\n  return policyMetrics.some(m => {\n    if (!m.breach_at) return false;\n    if (solvedAt) return new Date(m.breach_at) < solvedAt;\n    return m.stage === 'breached';\n  });\n}\n\nconst allTickets = [];\nfor (const item of $input.all()) {\n  const tickets = item.json.tickets || [];\n  allTickets.push(...tickets);\n}\n\nreturn allTickets.map(t => {\n  const m = t.metric_set || {};\n  const resolution = m.full_resolution_time_in_minutes?.business ?? null;\n\n  return {\n    json: {\n      ticket_id: t.id,\n      ticket_created_at: t.created_at,\n      ticket_updated_at: t.updated_at,\n      ticket_solved_at: m.solved_at ?? t.solved_at ?? null,\n      status: t.status,\n      channel: t.via?.channel || null,\n      form_id: t.ticket_form_id || null,\n      form_name: null,\n      assignee_id: t.assignee_id || null,\n      group_id: t.group_id || null,\n      csat_score: t.satisfaction_rating?.score || null,\n      first_reply_time_business_minutes: m.reply_time_in_minutes?.business ?? null,\n      next_reply_time_business_minutes: null,\n      pausable_update_time_business_minutes: m.on_hold_time_in_minutes?.business ?? null,\n      requester_wait_time_business_minutes: m.requester_wait_time_in_minutes?.business ?? null,\n      full_resolution_time_business_minutes: resolution,\n      one_business_day_solve_flag: resolution != null ? resolution <= 480 : null,\n      sla_breached_flag: getSlaBreachedFlag(t, m),\n      article_linked_flag: getArticleLinkedFlag(t),\n      missed_call_flag: null,\n      ticket_count: 1,\n      synced_at: new Date().toISOString()\n    }\n  };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1424,
+        4656
+      ],
+      "id": "c8cf8753-9965-4d06-9a88-266c96a99547",
+      "name": "Code - Format Tickets"
+    },
+    {
+      "parameters": {
+        "jsCode": "const fields = $json.ticket_fields || [];\nreturn [{\n  json: {\n    fields: fields.map(f => ({\n      id: f.id,\n      title: f.title,\n      type: f.type,\n      key: f.key\n    }))\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        544,
+        4944
+      ],
+      "id": "c79abeb4-fb42-44e2-aa01-9c29913955a2",
       "name": "Code in JavaScript1"
-    },
-    {
-      "parameters": {
-        "url": "https://kipuhealth.zendesk.com/api/v2/search.json?query=type:ticket ticket_form_id:1900001563224&created>2026-04-01&per_page=20&include=custom_fields",
-        "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "zendeskApi",
-        "options": {}
-      },
-      "id": "f862a647-8608-44b4-9f61-f83e387048f3",
-      "name": "HTTP - Zendesk Searches",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        944,
-        2784
-      ],
-      "credentials": {
-        "zendeskApi": {
-          "id": "Nd6nYzUYdeDBS3Gj",
-          "name": "Equinox Zendesk Account"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "url": "https://kipuhealth.zendesk.com/api/v2/search/count.json?query=ticket_form_id:1900001563224 created>2026-01-01 created<2026-04-01 custom_field_1260824167549:support_",
-        "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "zendeskApi",
-        "options": {}
-      },
-      "id": "dd442319-1ebe-4ec5-9a1e-d0816488ad99",
-      "name": "HTTP - Zendesk Searches 2",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        944,
-        2960
-      ],
-      "credentials": {
-        "zendeskApi": {
-          "id": "Nd6nYzUYdeDBS3Gj",
-          "name": "Equinox Zendesk Account"
-        }
-      }
     }
   ],
   "pinData": {},
@@ -1344,7 +2011,7 @@
       "main": [
         [
           {
-            "node": "Code - Prepare Run Sync Search",
+            "node": "Code - Prep Count Query",
             "type": "main",
             "index": 0
           }
@@ -1439,7 +2106,7 @@
         ],
         [
           {
-            "node": "Code - Build Sync Response",
+            "node": "Wait - Between Chunks",
             "type": "main",
             "index": 0
           }
@@ -1495,17 +2162,6 @@
         [
           {
             "node": "Code in JavaScript",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "HTTP - Zendesk List All Fields": {
-      "main": [
-        [
-          {
-            "node": "Code - Shrink Ticket Fields",
             "type": "main",
             "index": 0
           }
@@ -1636,17 +2292,6 @@
         ]
       ]
     },
-    "Webhook - Backfill": {
-      "main": [
-        [
-          {
-            "node": "Code - Parse Backfill Params",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "Postgres - Final Sync Count": {
       "main": [
         [
@@ -1669,7 +2314,509 @@
         ]
       ]
     },
-    "HTTP - Zendesk Searches": {
+    "Code - Prep Count Query": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Count Full Range",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Count Full Range": {
+      "main": [
+        [
+          {
+            "node": "Code - Build Chunk List",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Build Chunk List": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Init Sync Progress",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Split in Batches - Chunk Loop",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Init Sync Progress": {
+      "main": [
+        []
+      ]
+    },
+    "Split in Batches - Chunk Loop": {
+      "main": [
+        [
+          {
+            "node": "Code - Build Sync Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "HTTP - Count Chunk",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait - Between Chunks": {
+      "main": [
+        [
+          {
+            "node": "Split in Batches - Chunk Loop",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Count Chunk": {
+      "main": [
+        [
+          {
+            "node": "Code - Prepare Run Sync Search",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook - Run ID Collect": {
+      "main": [
+        [
+          {
+            "node": "Code - ID Prep",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - ID Prep": {
+      "main": [
+        [
+          {
+            "node": "HTTP - ID Search Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - ID Search Page": {
+      "main": [
+        [
+          {
+            "node": "Code - ID Extract Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - ID Extract Page": {
+      "main": [
+        [
+          {
+            "node": "Postgres - ID Insert Batch",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - ID Insert Batch": {
+      "main": [
+        []
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Wait1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Webhook Respond - Run ID Collect",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait1": {
+      "main": [
+        [
+          {
+            "node": "Code - ID Next Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - ID Next Page": {
+      "main": [
+        [
+          {
+            "node": "HTTP - ID Search Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Expand Tickets For Metrics1": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Fetch Ticket Metrics1": {
+      "main": [
+        [
+          {
+            "node": "Wait2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Upsert Tickets1": {
+      "main": [
+        [
+          {
+            "node": "Code - Accumulate Sync Totals1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait - Between Sync Batches1": {
+      "main": [
+        [
+          {
+            "node": "Split in Batches - Backfill Loop",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Build Batch Payload1": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Upsert Tickets1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Accumulate Sync Totals1": {
+      "main": [
+        [
+          {
+            "node": "More Backfill Batches?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items1": {
+      "main": [
+        [
+          {
+            "node": "Code - Build Batch Payload1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "HTTP - Fetch Ticket Metrics1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait2": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Batch Backfill IDs": {
+      "main": [
+        [
+          {
+            "node": "Split in Batches - Backfill Loop",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split in Batches - Backfill Loop": {
+      "main": [
+        [
+          {
+            "node": "Webhook Respond - Run ID Backfill",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "HTTP - Backfill Show Many",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Backfill Show Many": {
+      "main": [
+        [
+          {
+            "node": "Code - Expand Tickets For Metrics1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "More Backfill Batches?": {
+      "main": [
+        [
+          {
+            "node": "Wait - Between Sync Batches1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook - Run ID Backfill": {
+      "main": [
+        [
+          {
+            "node": "Code - Batch Backfill IDs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook - Backfill SLAs": {
+      "main": [
+        [
+          {
+            "node": "Code - Parse Backfill Params",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Init": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Export Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Export Page": {
+      "main": [
+        [
+          {
+            "node": "Code - Count + Next",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Count + Next": {
+      "main": [
+        [
+          {
+            "node": "If1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If1": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Export Page",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code - Show Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook - Export Sync": {
+      "main": [
+        [
+          {
+            "node": "Code - Build Export URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Build Export URL": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Fetch Export Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Fetch Export Page": {
+      "main": [
+        [
+          {
+            "node": "Code - Accumulate + Next URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Accumulate + Next URL": {
+      "main": [
+        [
+          {
+            "node": "If - Has More Pages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If - Has More Pages": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Fetch Export Page",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code - Batch for Show Many",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute a SQL query": {
+      "main": [
+        [
+          {
+            "node": "Respond to Export Sync Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Batch for Show Many": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Show Many + Metrics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Show Many + Metrics": {
+      "main": [
+        [
+          {
+            "node": "Code - Format Tickets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Format Tickets": {
+      "main": [
+        [
+          {
+            "node": "Execute a SQL query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - One Time Calls": {
       "main": [
         [
           {
@@ -1687,7 +2834,7 @@
     "binaryMode": "separate",
     "availableInMCP": false
   },
-  "versionId": "ef99db81-b93b-43a7-ba8e-0c414fd1fe5f",
+  "versionId": "888d2886-0001-4c8e-b3c3-9038a1507cdb",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "52593113cc94089cd75ae3f96772feead566141362fb1a394622a12d4e4e1f80"
