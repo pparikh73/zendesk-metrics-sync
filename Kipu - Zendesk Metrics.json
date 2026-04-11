@@ -486,7 +486,7 @@
     },
     {
       "parameters": {
-        "url": "=https://kipuhealth.zendesk.com/api/v2/search/count.json?query=type:ticket ticket_form_id:1900001563224 ticket_form_id:32729757998235 ticket_form_id:1260812421569 ticket_form_id:5374649379867 created>=2026-01-01 created<2026-04-01 custom_field_1260824167549:support_\n",
+        "url": "=https://kipuhealth.zendesk.com/api/v2/ticket_fields/32729688213531.json",
         "authentication": "predefinedCredentialType",
         "nodeCredentialType": "zendeskApi",
         "options": {}
@@ -947,7 +947,7 @@
     "binaryMode": "separate",
     "availableInMCP": false
   },
-  "versionId": "47941400-1155-43cf-ab7d-ef357c666d19",
+  "versionId": "a02543fa-f6df-4f9a-ba33-ad8592ca0e6a",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "52593113cc94089cd75ae3f96772feead566141362fb1a394622a12d4e4e1f80"
