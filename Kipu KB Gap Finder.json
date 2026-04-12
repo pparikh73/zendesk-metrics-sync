@@ -3,332 +3,7 @@
   "nodes": [
     {
       "parameters": {
-        "httpMethod": "POST",
-        "path": "kipu-intel-chat",
-        "responseMode": "responseNode",
-        "options": {}
-      },
-      "type": "n8n-nodes-base.webhook",
-      "typeVersion": 2.1,
-      "position": [
-        1088,
-        352
-      ],
-      "id": "99520ace-c064-4ff1-bd16-6c9c66fa56da",
-      "name": "Webhook - Chat",
-      "webhookId": "kb-gap-chat-001"
-    },
-    {
-      "parameters": {
-        "jsCode": "const body = $('Code - Parse Query Context').first().json;\nconst message = body.message || '';\nconst history = Array.isArray(body.history) ? body.history.slice(-4) : [];\n\nif (!message) throw new Error('message is required');\n\nconst scan = $('Postgres - Load Scan Context').first().json;\nconst metrics = $('Postgres - Load Metrics Context').first().json;\nconst sections = scan.sections || [];\n\nconst formLabel = body.form_name || 'All Forms';\nconst dateLabel = body.date_from ? `${body.date_from} to ${body.date_to}` : 'all available data';\n\nconst metricsContext = metrics.total_tickets > 0 ? `\nSUPPORT METRICS (${formLabel}, ${dateLabel}):\n- Total tickets: ${metrics.total_tickets}\n- Solved tickets: ${metrics.solved_tickets}\n- Avg resolution time: ${metrics.avg_resolution_hours != null ? metrics.avg_resolution_hours + ' hours' : 'N/A'}\n- SLA breach rate: ${metrics.sla_breach_pct ?? 'N/A'}%\n- Article link rate: ${metrics.article_link_pct ?? 'N/A'}%\n- CSAT: ${metrics.csat_pct ?? 'N/A'}% good (${metrics.csat_responses ?? 0} actual responses out of ${metrics.total_tickets} tickets — low response rate is normal)` : '\\nSUPPORT METRICS: No ticket data found for the selected filters.';\n\nconst kbContext = scan.scan_id ? `\nKB GAP ANALYSIS (${scan.form_name}, ${scan.date_from} to ${scan.date_to}):\n- Total tickets analyzed: ${scan.total_tickets}\n- Topics tracked: ${scan.total_topics}\n- Coverage score: ${scan.coverage_score}%\n- KB availability gaps (no articles): ${scan.kb_availability} | KB linking gaps (articles unused): ${scan.kb_linking} | KB usage gaps (needs improvement): ${scan.kb_usage} | Non-KB topics: ${scan.non_kb}\n- High priority topics: ${scan.high_priority} | Medium: ${scan.medium_priority}\n- Est. deflection rate: ${scan.deflection_rate}%\n\nALL KB TOPICS (by volume):\n${sections.map(s => `- ${s.topic_name}: ${s.ticket_count} tickets | ${s.gap_type} | ${s.priority} priority | KCS: ${s.kcs_adoption_pct}%\n  Summary: ${s.gap_summary}\n  Action: ${s.recommended_action}`).join('\\n')}` : '\\nKB GAP ANALYSIS: No scan data found for the selected filters.';\n\nconst systemPrompt = `You are a support intelligence assistant for Kipu Health. You have access to two data sources: live support ticket metrics and KB gap analysis. For every question, cross-reference both sources to surface insights neither could show alone — for example, connecting high SLA breach rates to missing KB articles, or linking CSAT dips to topics with no coverage. Always lead with the most actionable insight. Be concise and specific — cite ticket volumes, percentages, and topic names. If the data doesn't contain enough to answer, say so plainly.\n${metricsContext}\n${kbContext}`;\n\nconst historyMessages = history.map(h => `${h.role === 'user' ? 'User' : 'Assistant'}: ${h.content}`).join('\\n');\nconst userPrompt = historyMessages ? `${historyMessages}\\nUser: ${message}` : message;\n\nreturn [{ json: { system_prompt: systemPrompt, user_prompt: userPrompt, original_message: message } }];\n"
-      },
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        2448,
-        352
-      ],
-      "id": "94e11529-cfb2-4be4-811f-0d029e7d5a9d",
-      "name": "Code - Build Chat Prompt"
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "https://automations.kipuqa.com/webhook/d8636958-7ad8-4888-a0cf-619308193a2c",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
-        "sendBody": true,
-        "bodyParameters": {
-          "parameters": [
-            {
-              "name": "system_prompt",
-              "value": "={{ $json.system_prompt }}"
-            },
-            {
-              "name": "user_prompt",
-              "value": "={{ $json.user_prompt }}"
-            },
-            {
-              "name": "temperature",
-              "value": "=0.3"
-            },
-            {
-              "name": "max_tokens",
-              "value": "=1000"
-            }
-          ]
-        },
-        "options": {}
-      },
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.4,
-      "position": [
-        2688,
-        352
-      ],
-      "id": "43a65358-9d97-4347-a94b-c8f30157ea07",
-      "name": "Kipu LLM Webhook - Chat",
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "8gpQNhEjspc3sQui",
-          "name": "KipuLLM"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "dataTableId": {
-          "__rl": true,
-          "value": "UlmKZmk0eECsqKNa",
-          "mode": "list",
-          "cachedResultName": "KipuLLMUsage",
-          "cachedResultUrl": "/projects/4lDgK71Kepm49bQz/datatables/UlmKZmk0eECsqKNa"
-        },
-        "columns": {
-          "mappingMode": "defineBelow",
-          "value": {
-            "prompt_tokens": "={{ $json.usage.prompt_tokens }}",
-            "completion_tokens": "={{ $json.usage.completion_tokens }}",
-            "total_tokens": "={{ $json.usage.total_tokens }}"
-          },
-          "matchingColumns": [],
-          "schema": [
-            {
-              "id": "prompt_tokens",
-              "displayName": "prompt_tokens",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "type": "number",
-              "readOnly": false,
-              "removed": false
-            },
-            {
-              "id": "completion_tokens",
-              "displayName": "completion_tokens",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "type": "number",
-              "readOnly": false,
-              "removed": false
-            },
-            {
-              "id": "total_tokens",
-              "displayName": "total_tokens",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "type": "number",
-              "readOnly": false,
-              "removed": false
-            }
-          ],
-          "attemptToConvertTypes": false,
-          "convertFieldsToString": false
-        },
-        "options": {}
-      },
-      "type": "n8n-nodes-base.dataTable",
-      "typeVersion": 1.1,
-      "position": [
-        2928,
-        496
-      ],
-      "id": "aabe5e45-05e8-417f-a8ad-57e76e04ec99",
-      "name": "Kipu LLM Usage - Chat"
-    },
-    {
-      "parameters": {
-        "jsCode": "const llmOutput = $('Kipu LLM Webhook - Chat').first().json;\nconst response = llmOutput.output_text || llmOutput.text || llmOutput.response || '';\nconst usage = llmOutput.usage || { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };\nreturn [{ json: { response: String(response).trim(), usage } }];\n"
-      },
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        3168,
-        352
-      ],
-      "id": "ff31e8c5-5895-45f4-83b9-6bef0b046161",
-      "name": "Code - Parse Chat Response"
-    },
-    {
-      "parameters": {
-        "options": {}
-      },
-      "type": "n8n-nodes-base.respondToWebhook",
-      "typeVersion": 1.1,
-      "position": [
-        3408,
-        352
-      ],
-      "id": "b3859891-947a-477f-a8a1-969c6f2b6539",
-      "name": "Respond - Chat"
-    },
-    {
-      "parameters": {
-        "operation": "executeQuery",
-        "query": "SELECT \n  s.scan_id, s.scanned_at, s.date_from, s.date_to, s.form_name,\n  s.total_tickets, s.total_topics, s.coverage_score,\n  s.deflection_rate, s.kb_availability, s.kb_linking,\n  s.kb_usage, s.non_kb, s.high_priority, s.medium_priority,\n  json_agg(\n    json_build_object(\n      'topic_name', sec.topic_name,\n      'section_feature', sec.section_feature,\n      'ticket_count', sec.ticket_count,\n      'pct_of_total', sec.pct_of_total,\n      'gap_type', sec.gap_type,\n      'gap_summary', sec.gap_summary,\n      'recommended_action', sec.recommended_action,\n      'priority', sec.priority,\n      'deflection_potential', sec.deflection_potential,\n      'kcs_adoption_pct', sec.kcs_adoption_pct\n    ) ORDER BY sec.ticket_count DESC\n  ) as sections\nFROM kbg_scans s\nJOIN kbg_sections sec ON sec.scan_id = s.scan_id\nWHERE (\n  '{{ $json.form_name }}' = ''\n  OR s.form_name = '{{ $json.form_name }}'\n)\nAND s.scanned_at = (\n  SELECT MAX(s2.scanned_at) FROM kbg_scans s2\n  WHERE (\n    '{{ $json.form_name }}' = ''\n    OR s2.form_name = '{{ $json.form_name }}'\n  )\n)\nGROUP BY s.scan_id, s.scanned_at, s.date_from, s.date_to, s.form_name,\n  s.total_tickets, s.total_topics, s.coverage_score,\n  s.deflection_rate, s.kb_availability, s.kb_linking,\n  s.kb_usage, s.non_kb, s.high_priority, s.medium_priority;\n",
-        "options": {}
-      },
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.6,
-      "position": [
-        2000,
-        352
-      ],
-      "id": "22e858a1-80ac-4ffb-b49f-bb29310df2e9",
-      "name": "Postgres - Load Scan Context",
-      "credentials": {
-        "postgres": {
-          "id": "XjgfokqBkBtAIKkz",
-          "name": "Equinox Supabase - Zendesk Ticket Metrics"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "operation": "executeQuery",
-        "query": "SELECT\n  COUNT(*) as total_tickets,\n  COUNT(CASE WHEN status IN ('solved', 'closed') THEN 1 END) as solved_tickets,\n  ROUND(AVG(full_resolution_time_business_minutes)::numeric / 60, 1) as avg_resolution_hours,\n  ROUND(\n    SUM(CASE WHEN sla_breached_flag = true THEN 1 ELSE 0 END)::numeric \n    / NULLIF(COUNT(*), 0) * 100, 1\n  ) as sla_breach_pct,\n  ROUND(\n    SUM(CASE WHEN article_linked_flag = true THEN 1 ELSE 0 END)::numeric \n    / NULLIF(COUNT(*), 0) * 100, 1\n  ) as article_link_pct,\n  ROUND(\n    SUM(CASE WHEN csat_score = 'good' THEN 1 ELSE 0 END)::numeric \n    / NULLIF(SUM(CASE WHEN csat_score IN ('good', 'bad') THEN 1 ELSE 0 END), 0) * 100, 1\n  ) as csat_pct,\n  SUM(CASE WHEN csat_score IN ('good', 'bad') THEN 1 ELSE 0 END) as csat_responses\nFROM support_ticket_metrics_fact\nWHERE (\n  '{{ $('Code - Parse Query Context').first().json.form_name }}' = ''\n  OR form_id = CASE '{{ $('Code - Parse Query Context').first().json.form_name }}'\n    WHEN 'EMR'        THEN 1900001563224\n    WHEN 'Lab'        THEN 32729757998235\n    WHEN 'CRM'        THEN 1260812421569\n    WHEN 'Accounting' THEN 5374649379867\n    ELSE NULL\n  END\n)\nAND (\n  '{{ $('Code - Parse Query Context').first().json.date_from }}' = ''\n  OR ticket_created_at >= '{{ $('Code - Parse Query Context').first().json.date_from }}'\n)\nAND (\n  '{{ $('Code - Parse Query Context').first().json.date_to }}' = ''\n  OR ticket_created_at <= '{{ $('Code - Parse Query Context').first().json.date_to }}'\n);\n",
-        "options": {}
-      },
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.6,
-      "position": [
-        2208,
-        352
-      ],
-      "id": "8b9b78fb-33aa-40e6-8d52-18aea2679015",
-      "name": "Postgres - Load Metrics Context",
-      "credentials": {
-        "postgres": {
-          "id": "XjgfokqBkBtAIKkz",
-          "name": "Equinox Supabase - Zendesk Ticket Metrics"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "https://automations.kipuqa.com/webhook/d8636958-7ad8-4888-a0cf-619308193a2c",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
-        "sendBody": true,
-        "bodyParameters": {
-          "parameters": [
-            {
-              "name": "system_prompt",
-              "value": "You are a query parameter extractor for a support analytics system. Given a natural language question, extract filter parameters and return ONLY a valid JSON object — no markdown, no explanation:\\n{\\n \"form_name\": string or \"\",\\n \"date_from\": string (YYYY-MM-DD) or \"\",\\n \"date_to\": string (YYYY-MM-DD) or \"\"\\n}\\n\\nAvailable forms: EMR, CRM, Lab, Accounting. Return the matching form if mentioned or clearly implied. Return \"\" if none specified.\\n\\nFor dates: infer from natural language. Today is 2026-04-08. Use your judgment — for example \"Q1\" means the first quarter of the current or most recently mentioned year, \"last month\" means March 2026, \"this year\" means 2026-01-01 to today. Return \"\" for both date fields if no time period is mentioned or implied."
-            },
-            {
-              "name": "user_prompt",
-              "value": "=={{ $json.body?.message || $json.message }}"
-            },
-            {
-              "name": "temperature",
-              "value": "=0.3"
-            },
-            {
-              "name": "max_tokens",
-              "value": "=1000"
-            }
-          ]
-        },
-        "options": {}
-      },
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.4,
-      "position": [
-        1312,
-        352
-      ],
-      "id": "e8946c16-bcb8-4c14-b1ef-0226fdc29558",
-      "name": "HTTP - Extract Query Context",
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "8gpQNhEjspc3sQui",
-          "name": "KipuLLM"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "dataTableId": {
-          "__rl": true,
-          "value": "UlmKZmk0eECsqKNa",
-          "mode": "list",
-          "cachedResultName": "KipuLLMUsage",
-          "cachedResultUrl": "/projects/4lDgK71Kepm49bQz/datatables/UlmKZmk0eECsqKNa"
-        },
-        "columns": {
-          "mappingMode": "defineBelow",
-          "value": {
-            "prompt_tokens": "={{ $json.usage.prompt_tokens }}",
-            "completion_tokens": "={{ $json.usage.completion_tokens }}",
-            "total_tokens": "={{ $json.usage.total_tokens }}"
-          },
-          "matchingColumns": [],
-          "schema": [
-            {
-              "id": "prompt_tokens",
-              "displayName": "prompt_tokens",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "type": "number",
-              "readOnly": false,
-              "removed": false
-            },
-            {
-              "id": "completion_tokens",
-              "displayName": "completion_tokens",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "type": "number",
-              "readOnly": false,
-              "removed": false
-            },
-            {
-              "id": "total_tokens",
-              "displayName": "total_tokens",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "type": "number",
-              "readOnly": false,
-              "removed": false
-            }
-          ],
-          "attemptToConvertTypes": false,
-          "convertFieldsToString": false
-        },
-        "options": {}
-      },
-      "type": "n8n-nodes-base.dataTable",
-      "typeVersion": 1.1,
-      "position": [
-        1536,
-        512
-      ],
-      "id": "21fffccd-ad78-449d-876a-08f92c2d39ec",
-      "name": "Kipu LLM Usage - Query"
-    },
-    {
-      "parameters": {
-        "jsCode": "const body = $('Webhook - Chat').first().json.body || $('Webhook - Chat').first().json;\n\nconst resp = Array.isArray($input.first().json) ? $input.first().json[0] : $input.first().json;\nconst raw = resp?.output_text || '';\nconst cleaned = raw.replace(/```json|```/g, '').trim();\n\nlet extracted = { form_name: '', date_from: '', date_to: '' };\ntry {\n  extracted = JSON.parse(cleaned);\n} catch(e) {}\n\n// Normalize dates to YYYY-MM-DD regardless of what format the LLM returned\nconst toISODate = val => {\n  if (!val) return '';\n  try {\n    const d = new Date(val);\n    if (isNaN(d.getTime())) return '';\n    return d.toISOString().slice(0, 10);\n  } catch(e) {\n    return '';\n  }\n};\n\nreturn [{ json: {\n  message: body.message || '',\n  history: body.history || [],\n  form_name: extracted.form_name || '',\n  date_from: toISODate(extracted.date_from),\n  date_to: toISODate(extracted.date_to)\n}}];\n"
-      },
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        1760,
-        352
-      ],
-      "id": "f56c1675-d5a1-4f3f-a184-7f9ff33dd9aa",
-      "name": "Code - Parse Query Context"
-    },
-    {
-      "parameters": {
-        "jsCode": "return [{ json: { \n  url: 'https://kipuhealth.zendesk.com/api/v2/help_center/articles.json?per_page=100&page=1&include=sections,categories'\n}}];\n"
+        "jsCode": "const body = $('Webhook - KB Embed Sync').first().json.body || {};\nconst source = body.source || 'emr';\nconst baseUrl = body.base_url || 'https://kipuhealth.zendesk.com';\n\nconst data = $getWorkflowStaticData('global');\ndata.source = source;\ndata.base_url = baseUrl;\n\nreturn [{\n  json: {\n    url: `${baseUrl}/api/v2/help_center/articles.json?per_page=100&page=1`,\n    source: source,\n    base_url: baseUrl\n  }\n}];\n"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -363,7 +38,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const allArticles = [];\nfor (const item of $input.all()) {\n  const articles = item.json.articles || [];\n  allArticles.push(...articles);\n}\n\nconst filtered = allArticles.filter(a => {\n  const categoryName = (a.category?.name || '').toLowerCase();\n  return !categoryName.includes('release note');\n});\n\nconst cleaned = filtered.map(a => {\n  const bodyText = (a.body || '')\n    .replace(/<[^>]*>/g, ' ')\n    .replace(/&nbsp;/g, ' ')\n    .replace(/&amp;/g, '&')\n    .replace(/&lt;/g, '<')\n    .replace(/&gt;/g, '>')\n    .replace(/\\s+/g, ' ')\n    .trim()\n    .slice(0, 8000);\n\n  return {\n    article_id: a.id,\n    title: a.title,\n    body_text: bodyText,\n    section_id: a.section_id,\n    url: `https://kipuhealth.zendesk.com/hc/en-us/articles/${a.id}`,\n    outdated: a.outdated || false,\n    draft: a.draft || false,\n    updated_at: a.updated_at,\n    embed_input: `${a.title}\\n\\n${bodyText}`\n  };\n});\n\nreturn [{ json: {\n  inputs: cleaned.map(a => a.embed_input),\n  articles: cleaned\n}}];\n"
+        "jsCode": "const data = $getWorkflowStaticData('global');\nconst baseUrl = data.base_url || 'https://kipuhealth.zendesk.com';\nconst source = data.source || 'emr';\n\nconst allArticles = [];\nfor (const item of $input.all()) {\n  const articles = item.json.articles || [];\n  allArticles.push(...articles);\n}\n\nconst cleaned = allArticles.filter(a => !a.draft).map(a => {\n  const bodyText = (a.body || '')\n    .replace(/<[^>]*>/g, ' ')\n    .replace(/&nbsp;/g, ' ')\n    .replace(/&amp;/g, '&')\n    .replace(/&lt;/g, '<')\n    .replace(/&gt;/g, '>')\n    .replace(/\\s+/g, ' ')\n    .trim()\n    .slice(0, 8000);\n\n  return {\n    article_id: a.id,\n    title: a.title,\n    body_text: bodyText,\n    section_id: a.section_id,\n    url: `${baseUrl}/hc/en-us/articles/${a.id}`,\n    outdated: a.outdated || false,\n    draft: a.draft || false,\n    updated_at: a.updated_at,\n    source: source,\n    embed_input: `${a.title}\\n\\n${bodyText}`\n  };\n});\n\nreturn [{ json: {\n  inputs: cleaned.map(a => a.embed_input),\n  articles: cleaned\n}}];\n"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -412,7 +87,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const embeddings = $json.data || [];\nconst articles = $('Code - Filter + Clean Articles').first().json.articles;\n\nreturn embeddings.map((e, i) => {\n  const article = articles[i];\n  if (!article) return null;\n  return {\n    json: {\n      article_id: article.article_id,\n      title: (article.title || '').replace(/'/g, \"''\"),\n      body_text: (article.body_text || '').replace(/'/g, \"''\"),\n      section_id: article.section_id || null,\n      url: article.url,\n      outdated: article.outdated || false,\n      draft: article.draft || false,\n      updated_at: article.updated_at,\n      embedding: JSON.stringify(e.embedding),\n      embedded_at: new Date().toISOString()\n    }\n  };\n}).filter(Boolean);\n"
+        "jsCode": "const embeddings = $json.data || [];\nconst articles = $('Code - Filter + Clean Articles').first().json.articles;\n\nreturn embeddings.map((e, i) => {\n  const article = articles[i];\n  if (!article) return null;\n  return {\n    json: {\n      article_id: article.article_id,\n      title: (article.title || '').replace(/'/g, \"''\"),\n      body_text: (article.body_text || '').replace(/'/g, \"''\"),\n      section_id: article.section_id || null,\n      url: article.url,\n      outdated: article.outdated || false,\n      draft: article.draft || false,\n      updated_at: article.updated_at,\n      embedding: JSON.stringify(e.embedding),\n      embedded_at: new Date().toISOString(),\n      source: article.source\n    }\n  };\n}).filter(Boolean);\n"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -426,7 +101,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "INSERT INTO kb_article_embeddings (\n  article_id, title, body_text, section_id, url,\n  outdated, draft, embedding, embedded_at, updated_at, source\n) VALUES (\n  {{ $json.article_id }},\n  '{{ $json.title.replace(/'/g, \"''\") }}',\n  '{{ $json.body_text.replace(/'/g, \"''\") }}',\n  {{ $json.section_id }},\n  '{{ $json.url }}',\n  {{ $json.outdated }},\n  {{ $json.draft }},\n  '{{ $json.embedding }}'::vector,\n  '{{ $json.embedded_at }}',\n  '{{ $json.updated_at }}',\n  'emr'\n)\nON CONFLICT (article_id, source) DO UPDATE SET\n  title = EXCLUDED.title,\n  body_text = EXCLUDED.body_text,\n  embedding = EXCLUDED.embedding,\n  outdated = EXCLUDED.outdated,\n  embedded_at = EXCLUDED.embedded_at,\n  updated_at = EXCLUDED.updated_at;\n",
+        "query": "INSERT INTO kb_article_embeddings (\n  article_id, title, body_text, section_id, url,\n  outdated, draft, embedding, embedded_at, updated_at, source\n) VALUES (\n  {{ $json.article_id }},\n  '{{ $json.title.replace(/'/g, \"''\") }}',\n  '{{ $json.body_text.replace(/'/g, \"''\") }}',\n  {{ $json.section_id }},\n  '{{ $json.url }}',\n  {{ $json.outdated }},\n  {{ $json.draft }},\n  '{{ $json.embedding }}'::vector,\n  NOW(),\n  '{{ $json.updated_at }}',\n  '{{ $json.source }}'\n)\nON CONFLICT (article_id, source) DO UPDATE SET\n  title = EXCLUDED.title,\n  body_text = EXCLUDED.body_text,\n  embedding = EXCLUDED.embedding,\n  outdated = EXCLUDED.outdated,\n  draft = EXCLUDED.draft,\n  embedded_at = NOW(),\n  updated_at = EXCLUDED.updated_at;\n",
         "options": {}
       },
       "type": "n8n-nodes-base.postgres",
@@ -850,7 +525,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "INSERT INTO kb_embed_log (articles_embedded, status)\nSELECT COUNT(*), 'success' FROM kb_article_embeddings;\n",
+        "query": "INSERT INTO kb_embed_log (articles_embedded, status, source)\nSELECT COUNT(*), 'success', source\nFROM kb_article_embeddings\nGROUP BY source\nORDER BY source;\n",
         "options": {}
       },
       "type": "n8n-nodes-base.postgres",
@@ -901,7 +576,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "TRUNCATE TABLE kb_article_embeddings;\n",
+        "query": "DELETE FROM kb_article_embeddings \nWHERE source = '{{ $('Webhook - KB Embed Sync').first().json.body.source }}';\n",
         "options": {}
       },
       "type": "n8n-nodes-base.postgres",
@@ -1246,133 +921,10 @@
       ],
       "id": "7225dcbe-386a-4f5e-a5f3-b95344e5f517",
       "name": "Sticky Note2"
-    },
-    {
-      "parameters": {
-        "content": "Supabase data chat flow",
-        "height": 80,
-        "width": 160
-      },
-      "type": "n8n-nodes-base.stickyNote",
-      "typeVersion": 1,
-      "position": [
-        1072,
-        224
-      ],
-      "id": "6a3a0036-9905-439d-af8b-b78799e241f1",
-      "name": "Sticky Note3"
     }
   ],
   "pinData": {},
   "connections": {
-    "Webhook - Chat": {
-      "main": [
-        [
-          {
-            "node": "HTTP - Extract Query Context",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Code - Build Chat Prompt": {
-      "main": [
-        [
-          {
-            "node": "Kipu LLM Webhook - Chat",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Kipu LLM Webhook - Chat": {
-      "main": [
-        [
-          {
-            "node": "Kipu LLM Usage - Chat",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "Code - Parse Chat Response",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Kipu LLM Usage - Chat": {
-      "main": [
-        []
-      ]
-    },
-    "Code - Parse Chat Response": {
-      "main": [
-        [
-          {
-            "node": "Respond - Chat",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Postgres - Load Scan Context": {
-      "main": [
-        [
-          {
-            "node": "Postgres - Load Metrics Context",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Postgres - Load Metrics Context": {
-      "main": [
-        [
-          {
-            "node": "Code - Build Chat Prompt",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "HTTP - Extract Query Context": {
-      "main": [
-        [
-          {
-            "node": "Kipu LLM Usage - Query",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "Code - Parse Query Context",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Kipu LLM Usage - Query": {
-      "main": [
-        []
-      ]
-    },
-    "Code - Parse Query Context": {
-      "main": [
-        [
-          {
-            "node": "Postgres - Load Scan Context",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "Code - Build Article Fetch URL": {
       "main": [
         [
@@ -1771,7 +1323,7 @@
     "binaryMode": "separate",
     "availableInMCP": false
   },
-  "versionId": "caff3461-41d0-415d-8433-2fe9ea752852",
+  "versionId": "ee7c45a6-341d-4b82-8c81-c269735883ec",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "52593113cc94089cd75ae3f96772feead566141362fb1a394622a12d4e4e1f80"
