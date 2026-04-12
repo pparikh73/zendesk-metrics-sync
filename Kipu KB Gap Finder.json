@@ -4,252 +4,6 @@
     {
       "parameters": {
         "httpMethod": "POST",
-        "path": "kb-gap-scan",
-        "responseMode": "responseNode",
-        "options": {}
-      },
-      "type": "n8n-nodes-base.webhook",
-      "typeVersion": 2.1,
-      "position": [
-        -432,
-        16
-      ],
-      "id": "7b1a38a7-27c4-4e91-98ec-2ad6a22c715a",
-      "name": "Webhook - Gap Scan",
-      "webhookId": "kb-gap-scan-001"
-    },
-    {
-      "parameters": {
-        "jsCode": "const webhookData = $('Webhook - Gap Scan').first().json;\nconst body = webhookData.body || webhookData;\nconst formId = body.form_id;\nconst dateFrom = body.date_from;\nconst dateTo = body.date_to;\n\nif (!formId) throw new Error('form_id is required');\nif (!dateFrom || !dateTo) throw new Error('date_from and date_to are required');\n\nconst buildSectionMap = $('Code - Build Section Map').first().json;\nconst formConfig = $('Postgres - Get Form Config').first().json;\n\nconst data = $getWorkflowStaticData('global');\ndata.ticket_sections = {};\ndata.kb_articles = [];\ndata.section_map = buildSectionMap.section_map || {};\ndata.section_field_id = buildSectionMap.section_field_id;\ndata.scan_params = { \n  form_id: formId, \n  form_name: formConfig.form_name || formId, \n  date_from: dateFrom, \n  date_to: dateTo \n};\n\nconst q = `ticket_form_id:${formId} created>${dateFrom} created<${dateTo} custom_field_1260824167549:support_`;\nconst url = `https://kipuhealth.zendesk.com/api/v2/search/export?filter%5Btype%5D=ticket&query=${encodeURIComponent(q)}&page%5Bsize%5D=1000`;\n\nreturn [{ json: { url } }];\n"
-      },
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        560,
-        16
-      ],
-      "id": "67d3ea63-400b-495e-b71b-fa4db6b39e47",
-      "name": "Code - Prepare Scan"
-    },
-    {
-      "parameters": {
-        "url": "={{ $json.url }}",
-        "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "zendeskApi",
-        "options": {}
-      },
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.4,
-      "position": [
-        800,
-        16
-      ],
-      "id": "c097c064-4e99-4ca4-8e6f-2df2d33df536",
-      "name": "HTTP - Search Tickets",
-      "credentials": {
-        "zendeskApi": {
-          "id": "Nd6nYzUYdeDBS3Gj",
-          "name": "Equinox Zendesk Account"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "jsCode": "const data = $getWorkflowStaticData('global');\nif (!data.ticket_sections) data.ticket_sections = {};\n\nconst ARTICLE_FIELD_IDS = [18158428639387, 25171038337691];\nconst sectionMapNode = $('Code - Build Section Map').first().json;\nconst sectionFieldId = Number(sectionMapNode.section_field_id);\nconst sectionMap = sectionMapNode.section_map || {};\n\nconst tickets = $json.results || [];\n\nfor (const ticket of tickets) {\n  const fields = ticket.custom_fields || [];\n\n  const sf = fields.find(f => Number(f.id) === sectionFieldId);\n  const sectionValue = sf?.value || 'unknown';\n  if (!sectionMap[sectionValue]) continue;\n\n  let articleLinked = null;\n  for (const fid of ARTICLE_FIELD_IDS) {\n    const f = fields.find(cf => Number(cf.id) === Number(fid));\n    if (f && f.value != null && f.value !== '') {\n      const v = String(f.value).toLowerCase().trim();\n      if (['kcs_linked_yes','kcslinked_yes','yes','true'].includes(v)) { articleLinked = true; break; }\n      if (['kcs_linked_no','kcslinked_no','no','false'].includes(v))   { articleLinked = false; break; }\n    }\n  }\n  if (articleLinked === null) {\n    const tags = ticket.tags || [];\n    if (tags.some(t => ['kcs_linked_yes','kcslinked_yes'].includes(t))) articleLinked = true;\n    else if (tags.some(t => ['kcs_linked_no','kcslinked_no'].includes(t))) articleLinked = false;\n  }\n\n  if (!data.ticket_sections[sectionValue]) {\n    data.ticket_sections[sectionValue] = { total: 0, linked_yes: 0, linked_no: 0, linked_null: 0, tickets: [] };\n  }\n  data.ticket_sections[sectionValue].total++;\n  if (articleLinked === true)       data.ticket_sections[sectionValue].linked_yes++;\n  else if (articleLinked === false) data.ticket_sections[sectionValue].linked_no++;\n  else                              data.ticket_sections[sectionValue].linked_null++;\n\n  if (data.ticket_sections[sectionValue].tickets.length < 10) {\n    const subject = (ticket.subject || '').trim();\n    const description = (ticket.description || '').trim().slice(0, 200);\n    if (subject) data.ticket_sections[sectionValue].tickets.push({ subject, description });\n  }\n}\n\nconst hasMore = $json.meta?.has_more === true;\nconst nextUrl = hasMore ? ($json.links?.next || null) : null;\nconst total = Object.values(data.ticket_sections).reduce((s,v) => s + v.total, 0);\nreturn [{ json: { next_page: nextUrl, sections_tracked: Object.keys(data.ticket_sections).length, total_tickets_processed: total } }];\n"
-      },
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        1040,
-        16
-      ],
-      "id": "5c56e650-9889-4af3-a6d0-c49da276a023",
-      "name": "Code - Accumulate Ticket Data"
-    },
-    {
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "strict",
-            "version": 1
-          },
-          "conditions": [
-            {
-              "leftValue": "={{ $json.next_page }}",
-              "rightValue": "",
-              "operator": {
-                "type": "string",
-                "operation": "notEmpty"
-              },
-              "id": "0f9c4f0b-36b3-4361-bbd2-1a042ce9930d"
-            }
-          ],
-          "combinator": "and"
-        },
-        "options": {}
-      },
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2,
-      "position": [
-        1280,
-        16
-      ],
-      "id": "05c8dd0e-a9c0-4913-92c7-8ec38e2995f1",
-      "name": "IF - More Ticket Pages"
-    },
-    {
-      "parameters": {
-        "amount": 1
-      },
-      "type": "n8n-nodes-base.wait",
-      "typeVersion": 1.1,
-      "position": [
-        1520,
-        -160
-      ],
-      "id": "867fbd33-3499-4a76-a832-d25712245d7e",
-      "name": "Wait - Ticket Page",
-      "webhookId": "dc9a0306-7762-409c-9478-feeec86211f2"
-    },
-    {
-      "parameters": {
-        "jsCode": "return [{ json: { url: $json.next_page } }];"
-      },
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        1760,
-        -160
-      ],
-      "id": "1b4eb3fd-918b-43cf-a602-d7311e6619f6",
-      "name": "Code - Next Ticket URL"
-    },
-    {
-      "parameters": {
-        "jsCode": "return [{ json: { kb_url: 'https://kipuhealth.zendesk.com/api/v2/help_center/en-us/articles.json?per_page=100&page=1' } }];\n"
-      },
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        1520,
-        128
-      ],
-      "id": "fb50e088-b861-46ca-907a-1f51a12885b4",
-      "name": "Code - Start KB Fetch"
-    },
-    {
-      "parameters": {
-        "url": "={{ $json.kb_url }}",
-        "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "zendeskApi",
-        "options": {}
-      },
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.4,
-      "position": [
-        1760,
-        128
-      ],
-      "id": "b1cf43da-cc2f-474a-beb2-07069e0bb4d5",
-      "name": "HTTP - Fetch KB Articles",
-      "credentials": {
-        "zendeskApi": {
-          "id": "Nd6nYzUYdeDBS3Gj",
-          "name": "Equinox Zendesk Account"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "jsCode": "const data = $getWorkflowStaticData('global');\nif (!data.kb_articles) data.kb_articles = [];\n\nconst articles = $json.articles || [];\nfor (const a of articles) {\n  if (!a.draft) {\n    data.kb_articles.push({\n      id: a.id,\n      title: a.title,\n      section_id: a.section_id,\n      updated_at: a.updated_at,\n      outdated: a.outdated || false\n    });\n  }\n}\n\nreturn [{ json: { next_page: $json.next_page || null, articles_collected: data.kb_articles.length } }];"
-      },
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        2000,
-        128
-      ],
-      "id": "9ef021ee-6d17-456f-aec2-5f8e16c2f6c1",
-      "name": "Code - Accumulate KB Articles"
-    },
-    {
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "strict",
-            "version": 1
-          },
-          "conditions": [
-            {
-              "leftValue": "={{ $json.next_page }}",
-              "rightValue": "",
-              "operator": {
-                "type": "string",
-                "operation": "notEmpty",
-                "singleValue": true
-              },
-              "id": "9a31a06d-f671-44fb-97a0-fd54ec7e6547"
-            }
-          ],
-          "combinator": "and"
-        },
-        "options": {}
-      },
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2,
-      "position": [
-        2240,
-        128
-      ],
-      "id": "5e6f57c7-74e6-4632-8ec9-1f1aac36f085",
-      "name": "IF - More KB Pages"
-    },
-    {
-      "parameters": {
-        "jsCode": "return [{ json: { kb_url: $json.next_page } }];"
-      },
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        2496,
-        336
-      ],
-      "id": "09da146e-639c-4deb-961f-ebd20a5ac59a",
-      "name": "Code - Next KB URL"
-    },
-    {
-      "parameters": {
-        "jsCode": "const data = $getWorkflowStaticData('global');\nconst ticketSections = data.ticket_sections || {};\nconst kbArticles = data.kb_articles || [];\n\nconst sectionMap = $('Code - Build Section Map').first().json.section_map || {};\n\nconst webhookData = $('Webhook - Gap Scan').first().json;\nconst body = webhookData.body || webhookData;\nconst formConfig = $('Postgres - Get Form Config').first().json;\n\nconst scanParams = {\n  form_id: body.form_id,\n  form_name: formConfig.form_name || body.form_id,\n  date_from: body.date_from,\n  date_to: body.date_to\n};\n\nconst stopWords = new Set(['with','from','that','this','have','been','more','than','template','request','feature','and','the','for']);\n\nfunction findCandidateArticles(topicName) {\n  const keywords = topicName.toLowerCase()\n    .replace(/[^a-z0-9\\s]/g,' ').split(/\\s+/)\n    .filter(w => w.length > 3 && !stopWords.has(w));\n  return kbArticles.filter(a => {\n    const t = a.title.toLowerCase();\n    return keywords.some(kw => t.includes(kw));\n  }).slice(0, 10).map(a => ({ id: a.id, title: a.title, updated_at: a.updated_at, outdated: a.outdated }));\n}\n\nconst totalTickets = Object.values(ticketSections).reduce((s,v) => s + v.total, 0);\n\nconst NON_SUPPORT = new Set([\n  'non-support__abandoned_call_emr','emr_non-support__accounting',\n  'emr_client_success_manager__csm_emr','emr_hr','emr_implementation',\n  'emr_non-support__it','emr_non-support__labs','emr_non-support__legal',\n  'non-support__product','emr_sales','emr_non-support__security',\n  'emr_non-support__tech_touch','stakeholder_escalations_emr',\n  'vm__unable_to_reach_back_','sandbox_request'\n]);\n\nconst rawSections = Object.entries(ticketSections)\n  .filter(([sv]) => sv !== 'unknown' && !NON_SUPPORT.has(sv))\n  .map(([sv, counts]) => {\n    const topicName = sectionMap[sv] || sv;\n    const candidateArticles = findCandidateArticles(topicName);\n    const kcsRate = counts.total > 0 ? ((counts.linked_yes + counts.linked_no) / counts.total) * 100 : 0;\n    return {\n      section_feature: sv,\n      topic_name: topicName,\n      ticket_count: counts.total,\n      pct_of_total: totalTickets > 0 ? Math.round((counts.total / totalTickets) * 1000) / 10 : 0,\n      article_linked_yes: counts.linked_yes,\n      article_linked_no: counts.linked_no,\n      article_linked_null: counts.linked_null,\n      kcs_adoption_pct: Math.round(kcsRate * 10) / 10,\n      candidate_articles: candidateArticles,\n      tickets: counts.tickets || []\n    };\n  })\n  .filter(r => r.ticket_count > 0)\n  .sort((a,b) => b.ticket_count - a.ticket_count);\n\nconst scanMeta = {\n  scan_id: Date.now().toString(),\n  scanned_at: new Date().toISOString(),\n  date_from: scanParams.date_from,\n  date_to: scanParams.date_to,\n  form_name: scanParams.form_name,\n  total_tickets: totalTickets,\n  total_sections: rawSections.length\n};\n\ndata.llm_results = [];\ndata.ticket_sections = null;\ndata.kb_articles = null;\n\nreturn rawSections.map(s => ({ json: {\n  ...s,\n  _total_sections: rawSections.length,\n  _scan_meta: scanMeta\n}}));\n"
-      },
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        2480,
-        144
-      ],
-      "id": "8ac18607-bdb9-46cb-9cea-8b8c5acaf1af",
-      "name": "Code - Build Coverage Map"
-    },
-    {
-      "parameters": {
-        "options": {}
-      },
-      "type": "n8n-nodes-base.respondToWebhook",
-      "typeVersion": 1.1,
-      "position": [
-        5296,
-        128
-      ],
-      "id": "2343bd59-a0cc-45df-9ab4-954d00d6e310",
-      "name": "Respond - Gap Scan"
-    },
-    {
-      "parameters": {
-        "httpMethod": "POST",
         "path": "kipu-intel-chat",
         "responseMode": "responseNode",
         "options": {}
@@ -257,8 +11,8 @@
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2.1,
       "position": [
-        -464,
-        816
+        1088,
+        352
       ],
       "id": "99520ace-c064-4ff1-bd16-6c9c66fa56da",
       "name": "Webhook - Chat",
@@ -271,8 +25,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        896,
-        816
+        2448,
+        352
       ],
       "id": "94e11529-cfb2-4be4-811f-0d029e7d5a9d",
       "name": "Code - Build Chat Prompt"
@@ -309,8 +63,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
       "position": [
-        1136,
-        816
+        2688,
+        352
       ],
       "id": "43a65358-9d97-4347-a94b-c8f30157ea07",
       "name": "Kipu LLM Webhook - Chat",
@@ -378,8 +132,8 @@
       "type": "n8n-nodes-base.dataTable",
       "typeVersion": 1.1,
       "position": [
-        1376,
-        960
+        2928,
+        496
       ],
       "id": "aabe5e45-05e8-417f-a8ad-57e76e04ec99",
       "name": "Kipu LLM Usage - Chat"
@@ -391,8 +145,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1616,
-        816
+        3168,
+        352
       ],
       "id": "ff31e8c5-5895-45f4-83b9-6bef0b046161",
       "name": "Code - Parse Chat Response"
@@ -404,278 +158,11 @@
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
       "position": [
-        1856,
-        816
+        3408,
+        352
       ],
       "id": "b3859891-947a-477f-a8a1-969c6f2b6539",
       "name": "Respond - Chat"
-    },
-    {
-      "parameters": {
-        "mode": "runOnceForEachItem",
-        "jsCode": "const section = $json;\nconst scanMeta = $('Code - Build Coverage Map').first().json._scan_meta || {};\nconst formName = scanMeta.form_name || 'EMR';\nconst totalTickets = scanMeta.total_tickets || 0;\n\nconst ticketSamples = (section.tickets || []).map((t, i) =>\n  `${i + 1}. Subject: \"${t.subject}\"\\n   Description: \"${t.description}\"`\n).join('\\n');\n\nconst systemPrompt = `You are a knowledge base gap analyst for Kipu ${formName} support. Analyze the support ticket data for one ${formName} feature and classify the KB gap.\n\nReturn ONLY a valid JSON object with exactly these fields — no markdown, no explanation:\n{\n  \"section_feature\": string,\n  \"topic_name\": string,\n  \"ticket_count\": number,\n  \"pct_of_total\": number,\n  \"gap_type\": \"kb_availability\" | \"kb_linking\" | \"kb_usage\" | \"non_kb\",\n  \"gap_summary\": string,\n  \"recommended_articles\": [{\"id\": number, \"title\": string, \"url\": string, \"relevance\": \"high\"|\"medium\"|\"low\"}],\n  \"recommended_action\": string,\n  \"priority\": \"HIGH\" | \"MEDIUM\" | \"LOW\",\n  \"deflection_potential\": number,\n  \"kcs_adoption_pct\": number\n}\n\nSTRICT RULES — these override your judgment:\n1. section_feature: copy the \"Section Feature Key\" value exactly as given — do not modify, humanize, or combine with the topic name\n2. topic_name: copy the human-readable name exactly as given in the input\n3. If no candidate articles were provided, gap_type MUST be \"kb_availability\"\n4. If kcs_adoption_pct is 0 AND linked_yes is 0, gap_type CANNOT be \"non_kb\"\n5. \"non_kb\" requires BOTH: (a) kcs_adoption_pct > 0 AND (b) at least one candidate article is genuinely relevant to the ticket topic — not just any article. If agents are linking articles but the candidate articles provided are clearly about a different feature or topic, classify as \"kb_linking\" instead.\n6. Priority is based on % of total tickets in this scan (total: ${totalTickets} tickets): HIGH = 15% or more, MEDIUM = 5–14%, LOW = under 5%. kb_linking CANNOT be HIGH — cap at MEDIUM regardless of volume.\n7. Base ALL analysis strictly on the data provided — do not infer, assume, or draw on outside knowledge about the software, processes, or industry. If the ticket samples do not provide enough context to make a specific observation, say so plainly.\n8. KCS link rate (kcs_adoption_pct) is a contributing signal only — it reflects agent linking behavior and is NOT standalone evidence of a KB gap. Do not use alarming language in gap_summary or recommended_action solely because links are missing. If kcs_adoption_pct is high (>60%) but no relevant candidate articles were found, classify as \"kb_linking\" — agents know content exists somewhere but the gap finder cannot surface it.\n\nGap type definitions:\n- kb_availability: No relevant KB articles exist — agents have nothing to link\n- kb_linking: Agents are linking articles (kcs_adoption_pct > 0) but candidate articles are irrelevant to this topic, OR articles exist but kcs_adoption_pct is 0. This may reflect agent behavior or article tagging issues rather than missing documentation.\n- kb_usage: Articles exist AND linked_yes > 0 AND candidates are relevant, but tickets keep coming — content needs improvement\n- non_kb: Tickets are driven by product issues, access requests, or process questions — not solvable by KB content. Articles exist AND kcs_adoption_pct > 0 AND candidate articles are genuinely relevant.\n\ngap_summary: 2-3 plain English sentences for a live executive meeting. Reference ticket volume, article availability, and what the ticket samples reveal about the actual issue. Do not mention internal field names.\nrecommended_articles: 1-3 most relevant from candidates only. URL: https://kipuhealth.zendesk.com/hc/en-us/articles/{id}\ndeflection_potential: 60% of ticket_count for kb_availability, 40% for kb_linking, 25% for kb_usage, 0 for non_kb.`;\n\nconst userPrompt = `Form: ${formName}\nTopic Name: ${section.topic_name}\nSection Feature Key: ${section.section_feature}\nTickets: ${section.ticket_count} (${section.pct_of_total}% of total scanned)\nKCS Adoption: ${section.kcs_adoption_pct}%\n  Linked yes: ${section.article_linked_yes}\n  Linked no: ${section.article_linked_no}\n  Not recorded: ${section.article_linked_null}\n\nTicket samples (subject + first 200 chars of description):\n${ticketSamples || 'No samples available'}\n\nCandidate KB articles (keyword matched — may include irrelevant results):\n${section.candidate_articles.length > 0\n  ? section.candidate_articles.map(a => `- [${a.id}] \"${a.title}\" | updated: ${a.updated_at.slice(0,10)} | outdated: ${a.outdated}`).join('\\n')\n  : 'None found'}\n\nReturn ONLY the JSON object.`;\n\nreturn { json: {\n  system_prompt: systemPrompt,\n  prompt: userPrompt,\n  section_feature: section.section_feature,\n  topic_name: section.topic_name,\n  ticket_count: section.ticket_count\n}};\n"
-      },
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        2752,
-        144
-      ],
-      "id": "ebd002f4-c52b-4857-a8c5-f701d1b42c0f",
-      "name": "Code - Build Section Prompt"
-    },
-    {
-      "parameters": {
-        "mode": "runOnceForEachItem",
-        "jsCode": "const raw = $json.output_text || $json.text || $json.response || '';\nconst usage = $json.usage || { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };\n\nconst data = $getWorkflowStaticData('global');\nif (!data.llm_results) data.llm_results = [];\n\nlet parsed;\ntry {\n  const match = String(raw).match(/\\{[\\s\\S]*\\}/);\n  if (!match) throw new Error('No JSON in response');\n  parsed = JSON.parse(match[0]);\n} catch(e) {\n  parsed = {\n    gap_type: 'unknown',\n    gap_summary: 'Analysis unavailable.',\n    recommended_articles: [],\n    recommended_action: 'Manual review required.',\n    priority: 'LOW',\n    deflection_potential: 0,\n    kcs_adoption_pct: 0\n  };\n}\n\nparsed.section_feature = $('Code - Build Section Prompt').item.json.section_feature;\nparsed.topic_name = $('Code - Build Section Prompt').item.json.topic_name;\nparsed.ticket_count = $('Code - Build Section Prompt').item.json.ticket_count;\nparsed.article_linked_yes = $('Code - Build Coverage Map').item.json.article_linked_yes || 0;\nparsed.article_linked_no = $('Code - Build Coverage Map').item.json.article_linked_no || 0;\nparsed.article_linked_null = $('Code - Build Coverage Map').item.json.article_linked_null || 0;\n\ndata.llm_results.push(parsed);\n\nconst totalSections = $('Code - Build Coverage Map').item.json._total_sections || 1;\nconst isDone = data.llm_results.length >= totalSections;\n\nreturn { json: { is_done: isDone, usage, section_done: parsed.topic_name, count: data.llm_results.length, total: totalSections, result: parsed } };\n"
-      },
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        3216,
-        144
-      ],
-      "id": "a48be9ad-38f6-4a79-8a5e-83ebcc2f9dcd",
-      "name": "Code - Parse LLM Prompt"
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "https://automations.kipuqa.com/webhook/d8636958-7ad8-4888-a0cf-619308193a2c",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
-        "sendBody": true,
-        "bodyParameters": {
-          "parameters": [
-            {
-              "name": "system_prompt",
-              "value": "={{ $json.system_prompt }}"
-            },
-            {
-              "name": "user_prompt",
-              "value": "={{ $json.prompt }}"
-            },
-            {
-              "name": "temperature",
-              "value": "=0.2"
-            },
-            {
-              "name": "max_tokens",
-              "value": "=1000"
-            }
-          ]
-        },
-        "options": {}
-      },
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.4,
-      "position": [
-        3008,
-        144
-      ],
-      "id": "fc4aca8c-9992-40ce-96bb-7a519bf15f49",
-      "name": "HTTP - Kipu LLM Gap Analysis",
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "8gpQNhEjspc3sQui",
-          "name": "KipuLLM"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "dataTableId": {
-          "__rl": true,
-          "value": "UlmKZmk0eECsqKNa",
-          "mode": "list",
-          "cachedResultName": "KipuLLMUsage",
-          "cachedResultUrl": "/projects/4lDgK71Kepm49bQz/datatables/UlmKZmk0eECsqKNa"
-        },
-        "columns": {
-          "mappingMode": "defineBelow",
-          "value": {
-            "prompt_tokens": "={{ $json.usage.prompt_tokens }}",
-            "completion_tokens": "={{ $json.usage.completion_tokens }}",
-            "total_tokens": "={{ $json.usage.total_tokens }}"
-          },
-          "matchingColumns": [],
-          "schema": [
-            {
-              "id": "prompt_tokens",
-              "displayName": "prompt_tokens",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "type": "number",
-              "readOnly": false,
-              "removed": false
-            },
-            {
-              "id": "completion_tokens",
-              "displayName": "completion_tokens",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "type": "number",
-              "readOnly": false,
-              "removed": false
-            },
-            {
-              "id": "total_tokens",
-              "displayName": "total_tokens",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "type": "number",
-              "readOnly": false,
-              "removed": false
-            }
-          ],
-          "attemptToConvertTypes": false,
-          "convertFieldsToString": false
-        },
-        "options": {}
-      },
-      "type": "n8n-nodes-base.dataTable",
-      "typeVersion": 1.1,
-      "position": [
-        3216,
-        336
-      ],
-      "id": "668d1505-b0bf-4a13-ab6d-01f8e281f30d",
-      "name": "DataTable - KipuLLMUsage Gap"
-    },
-    {
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "strict",
-            "version": 3
-          },
-          "conditions": [
-            {
-              "id": "81c6f47b-5632-4054-bf9f-e5dcb3b0613a",
-              "leftValue": "={{ $json.is_done }}",
-              "rightValue": "",
-              "operator": {
-                "type": "boolean",
-                "operation": "true",
-                "singleValue": true
-              }
-            }
-          ],
-          "combinator": "and"
-        },
-        "options": {}
-      },
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.3,
-      "position": [
-        3440,
-        144
-      ],
-      "id": "b8ea94ac-5ae5-4aa3-87a4-783f675cbc74",
-      "name": "If"
-    },
-    {
-      "parameters": {
-        "operation": "executeQuery",
-        "query": "SELECT form_name, section_field_id, section_field_name \nFROM kbg_form_config \nWHERE form_id = '{{ $json.body?.form_id || $json.form_id }}' AND active = true\n\n",
-        "options": {}
-      },
-      "id": "90045b17-ccc6-46df-a5a2-74874eb365e7",
-      "name": "Postgres - Get Form Config",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.5,
-      "position": [
-        -176,
-        16
-      ],
-      "credentials": {
-        "postgres": {
-          "id": "XjgfokqBkBtAIKkz",
-          "name": "Equinox Supabase - Zendesk Ticket Metrics"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "url": "=https://kipuhealth.zendesk.com/api/v2/ticket_fields/{{ $json.section_field_id }}.json\n",
-        "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "zendeskApi",
-        "options": {}
-      },
-      "id": "94f15f9e-f522-4298-a811-567737d24ad6",
-      "name": "HTTP - Fetch Field Options",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.4,
-      "position": [
-        64,
-        16
-      ],
-      "credentials": {
-        "zendeskApi": {
-          "id": "Nd6nYzUYdeDBS3Gj",
-          "name": "Equinox Zendesk Account"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "jsCode": "const field = $json.ticket_field;\nconst options = field.custom_field_options || [];\n\nconst sectionMap = {};\noptions.forEach(opt => {\n  sectionMap[opt.value] = opt.name;\n});\n\nconst data = $getWorkflowStaticData('global');\ndata.section_map = sectionMap;\ndata.section_field_id = field.id.toString();\n\nreturn [{ json: { \n  section_field_id: field.id.toString(),\n  section_field_name: field.title,\n  total_options: options.length,\n  section_map: sectionMap\n}}];\n"
-      },
-      "id": "951c79a0-c0dd-4d66-beec-a1f3fb16efa9",
-      "name": "Code - Build Section Map",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        304,
-        16
-      ]
-    },
-    {
-      "parameters": {
-        "operation": "executeQuery",
-        "query": "INSERT INTO kbg_scans (\n  scan_id, scanned_at, date_from, date_to, form_name,\n  total_tickets, total_topics, coverage_score,\n  deflection_rate, kb_availability, kb_usage,\n  kb_linking, non_kb, high_priority, medium_priority\n) VALUES (\n  '{{ $json.scan_id }}',\n  '{{ $json.scanned_at }}',\n  '{{ $json.date_from }}',\n  '{{ $json.date_to }}',\n  '{{ $json.form_name }}',\n  {{ $json.total_tickets }},\n  {{ $json.total_topics }},\n  {{ $json.coverage_score }},\n  {{ $json.deflection_rate }},\n  {{ $json.summary.kb_availability }},\n  {{ $json.summary.kb_usage }},\n  {{ $json.summary.kb_linking }},\n  {{ $json.summary.non_kb }},\n  {{ $json.summary.high_priority }},\n  {{ $json.summary.medium_priority }}\n)\nON CONFLICT (scan_id) DO NOTHING;\n",
-        "options": {}
-      },
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.6,
-      "position": [
-        3920,
-        128
-      ],
-      "id": "a480a402-0b17-45ae-9545-ccdcccb681fd",
-      "name": "Postgres - Insert Scan",
-      "credentials": {
-        "postgres": {
-          "id": "XjgfokqBkBtAIKkz",
-          "name": "Equinox Supabase - Zendesk Ticket Metrics"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "operation": "executeQuery",
-        "query": "INSERT INTO kbg_sections (\n  scan_id, section_feature, topic_name, ticket_count, pct_of_total,\n  gap_type, gap_summary, recommended_action, priority,\n  deflection_potential, kcs_adoption_pct,\n  article_linked_yes, article_linked_no, article_linked_null,\n  recommended_articles, articles_to_create, articles_to_update\n) VALUES (\n  '{{ $json.scan_id }}',\n  '{{ $json.section_feature }}',\n  '{{ $json.topic_name }}',\n  {{ $json.ticket_count }},\n  {{ $json.pct_of_total }},\n  '{{ $json.gap_type }}',\n  '{{ $json.gap_summary }}',\n  '{{ $json.recommended_action }}',\n  '{{ $json.priority }}',\n  {{ $json.deflection_potential }},\n  {{ $json.kcs_adoption_pct }},\n  {{ $json.article_linked_yes }},\n  {{ $json.article_linked_no }},\n  {{ $json.article_linked_null }},\n  '{{ $json.recommended_articles }}'::jsonb,\n  {{ $json.articles_to_create ? `'${$json.articles_to_create}'::jsonb` : 'NULL' }},\n  {{ $json.articles_to_update ? `'${$json.articles_to_update}'::jsonb` : 'NULL' }}\n)\nON CONFLICT DO NOTHING;\n",
-        "options": {}
-      },
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.6,
-      "position": [
-        5024,
-        128
-      ],
-      "id": "acbd4002-768b-4075-9813-c700f008acd2",
-      "name": "Postgres - Insert Sections",
-      "credentials": {
-        "postgres": {
-          "id": "XjgfokqBkBtAIKkz",
-          "name": "Equinox Supabase - Zendesk Ticket Metrics"
-        }
-      }
     },
     {
       "parameters": {
@@ -686,8 +173,8 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
       "position": [
-        448,
-        816
+        2000,
+        352
       ],
       "id": "22e858a1-80ac-4ffb-b49f-bb29310df2e9",
       "name": "Postgres - Load Scan Context",
@@ -700,165 +187,6 @@
     },
     {
       "parameters": {
-        "jsCode": "// Clear article rec cache from any previous scan\nconst data = $getWorkflowStaticData('global');\ndata.article_recs = {};\n\nconst scan = $('Code - Assemble Final Output').first().json;\nconst coverageMap = scan.coverage_map || [];\n\nconst actionableGaps = coverageMap.filter(r =>\n  r.priority === 'HIGH' || r.priority === 'MEDIUM'\n);\n\nreturn actionableGaps.map(gap => {\n  const candidateList = (gap.recommended_articles || []).length > 0\n    ? gap.recommended_articles.map(a => `- [${a.id}] \"${a.title}\" (relevance: ${a.relevance})`).join('\\n')\n    : 'None';\n\n  const systemPrompt = `You are a KB content strategist for Kipu ${scan.form_name} support. Given a support ticket topic and its gap classification, produce a precise, actionable article plan.\n\nReturn ONLY a valid JSON object with exactly these fields — no markdown, no explanation:\n{\n  \"section_feature\": string,\n  \"articles_to_create\": [\n    {\n      \"suggested_title\": string,\n      \"audience\": string,\n      \"key_questions\": [string],\n      \"outline\": [string]\n    }\n  ],\n  \"articles_to_update\": [\n    {\n      \"article_id\": number,\n      \"article_url\": string,\n      \"current_gap\": string,\n      \"specific_improvements\": [string]\n    }\n  ]\n}\n\nRULES:\n1. section_feature: copy the \"Section Feature Key\" value exactly as given — do not modify, humanize, or combine with the topic name\n2. For kb_availability: articles_to_update must be empty []. Populate articles_to_create with 1-3 new article briefs.\n3. For kb_usage or kb_linking: articles_to_create must be empty []. Populate articles_to_update using only articles from the provided candidates list. article_url format: https://kipuhealth.zendesk.com/hc/en-us/articles/{article_id}\n4. key_questions: 3-5 specific questions this article must answer, written from the user's perspective\n5. outline: 4-6 section headings for the article\n6. specific_improvements: concrete, actionable changes — not vague suggestions like \"add more detail\"\n7. Base everything strictly on the ticket data and gap summary provided — no outside assumptions`;\n\n  const userPrompt = `Form: ${scan.form_name}\nTopic Name: ${gap.topic_name}\nSection Feature Key: ${gap.section_feature}\nTickets: ${gap.ticket_count} (${gap.pct_of_total}% of monthly volume)\nGap type: ${gap.gap_type}\nPriority: ${gap.priority}\nKCS adoption: ${gap.kcs_adoption_pct}%\n\nGap summary:\n${gap.gap_summary}\n\nExisting candidate articles:\n${candidateList}\n\nReturn ONLY the JSON object.`;\n\n  return { json: {\n    section_feature: gap.section_feature,\n    topic_name: gap.topic_name,\n    gap_type: gap.gap_type,\n    priority: gap.priority,\n    system_prompt: systemPrompt,\n    prompt: userPrompt\n  }};\n});\n"
-      },
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        4160,
-        128
-      ],
-      "id": "4f9f3a96-b955-47a6-b319-268d9a11a5fa",
-      "name": "Code - Filter Actionable Gaps"
-    },
-    {
-      "parameters": {
-        "jsCode": "const data = $getWorkflowStaticData('global');\nconst recMap = data.article_recs || {};\n\nconst scanData = $('Code - Assemble Final Output').first().json;\nconst scanId = scanData.scan_id;\nconst coverageMap = scanData.coverage_map || [];\n\nconst normalize = s => (s || '').toLowerCase().replace(/\\s+/g, '_').replace(/[^a-z0-9_\\/]/g, '');\nconst esc = s => (s || '').replace(/'/g, \"''\");\n\nreturn coverageMap.map(s => {\n  const recs = recMap[s.section_feature]\n    || recMap[normalize(s.section_feature)]\n    || { articles_to_create: null, articles_to_update: null };\n\n  return { json: {\n    scan_id: scanId,\n    section_feature: esc(s.section_feature),\n    topic_name: esc(s.topic_name),\n    ticket_count: s.ticket_count,\n    pct_of_total: s.pct_of_total,\n    gap_type: s.gap_type,\n    gap_summary: esc(s.gap_summary),\n    recommended_action: esc(s.recommended_action),\n    priority: s.priority,\n    deflection_potential: s.deflection_potential,\n    kcs_adoption_pct: s.kcs_adoption_pct,\n    article_linked_yes: s.article_linked_yes || 0,\n    article_linked_no: s.article_linked_no || 0,\n    article_linked_null: s.article_linked_null || 0,\n    recommended_articles: esc(JSON.stringify(s.recommended_articles || [])),\n    articles_to_create: recs.articles_to_create && recs.articles_to_create.length > 0\n      ? esc(JSON.stringify(recs.articles_to_create))\n      : null,\n    articles_to_update: recs.articles_to_update && recs.articles_to_update.length > 0\n      ? esc(JSON.stringify(recs.articles_to_update))\n      : null\n  }};\n});\n"
-      },
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        4800,
-        128
-      ],
-      "id": "3c5e7f44-063f-4910-b291-8f4fd89d4b44",
-      "name": "Code - Enrich & Prepare Inserts"
-    },
-    {
-      "parameters": {
-        "jsCode": "const data = $getWorkflowStaticData('global');\nconst allItems = $('Code - Parse LLM Prompt').all();\nconst coverageMap = allItems\n  .map(item => item.json.result)\n  .filter(Boolean)\n  .sort((a,b) => (b.ticket_count||0) - (a.ticket_count||0));\n\ncoverageMap.forEach(r => r.deflection_potential = Math.round(r.deflection_potential));\n\nconst scanMeta = $('Code - Build Coverage Map').first().json._scan_meta || {\n  scan_id: Date.now().toString(),\n  scanned_at: new Date().toISOString(),\n  date_from: null,\n  date_to: null,\n  form_name: 'Unknown',\n  total_tickets: 0\n};\n\nconst totalTickets = scanMeta.total_tickets || 1;\n\n// Guardrail: kb_availability + high KCS adoption is a contradiction — reclassify as non_kb\ncoverageMap.forEach(r => {\n  if (r.gap_type === 'kb_availability' && (r.kcs_adoption_pct || 0) > 60) {\n    r.gap_type = 'non_kb';\n    r.priority = 'LOW';\n  }\n});\n\n// Guardrail: override priority based on % of total scan volume\ncoverageMap.forEach(r => {\n  r.pct_of_total = Math.round(((r.ticket_count || 0) / totalTickets) * 1000) / 10;\n  if (r.gap_type === 'non_kb') {\n    r.priority = 'LOW';\n    return;\n  }\n  if (r.pct_of_total >= 15) {\n    r.priority = 'HIGH';\n  } else if (r.pct_of_total >= 5) {\n    r.priority = 'MEDIUM';\n  } else {\n    r.priority = 'LOW';\n  }\n});\n\n// Guardrail: kb_linking cannot be HIGH — cap at MEDIUM\ncoverageMap.forEach(r => {\n  if (r.gap_type === 'kb_linking' && r.priority === 'HIGH') {\n    r.priority = 'MEDIUM';\n  }\n});\n\nconst kbAvailability = coverageMap.filter(r => r.gap_type === 'kb_availability').length;\nconst kbLinking = coverageMap.filter(r => r.gap_type === 'kb_linking').length;\nconst kbUsage = coverageMap.filter(r => r.gap_type === 'kb_usage').length;\nconst nonKb = coverageMap.filter(r => r.gap_type === 'non_kb').length;\n\nconst totalDeflectableTickets = coverageMap.reduce((s,r) => s + (r.deflection_potential || 0), 0);\nconst deflectionRate = Math.min(100, Math.round((totalDeflectableTickets / totalTickets) * 100));\n\nconst coverageScore = coverageMap.length > 0 ? Math.round((nonKb / coverageMap.length) * 100) : 0;\n\ndata.llm_results = null;\n\nreturn [{ json: {\n  scan_id: scanMeta.scan_id,\n  scanned_at: scanMeta.scanned_at,\n  date_from: scanMeta.date_from,\n  date_to: scanMeta.date_to,\n  form_name: scanMeta.form_name,\n  total_tickets: scanMeta.total_tickets,\n  total_topics: coverageMap.length,\n  coverage_score: coverageScore,\n  deflection_rate: deflectionRate,\n  summary: {\n    kb_availability: kbAvailability,\n    kb_linking: kbLinking,\n    kb_usage: kbUsage,\n    non_kb: nonKb,\n    high_priority: coverageMap.filter(r => r.priority === 'HIGH').length,\n    medium_priority: coverageMap.filter(r => r.priority === 'MEDIUM').length\n  },\n  coverage_map: coverageMap\n}}];\n"
-      },
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        3728,
-        128
-      ],
-      "id": "8c90f992-f20b-4ebb-9bcd-40574606d94e",
-      "name": "Code - Assemble Final Output"
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "https://automations.kipuqa.com/webhook/d8636958-7ad8-4888-a0cf-619308193a2c",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
-        "sendBody": true,
-        "bodyParameters": {
-          "parameters": [
-            {
-              "name": "system_prompt",
-              "value": "={{ $json.system_prompt }}"
-            },
-            {
-              "name": "user_prompt",
-              "value": "={{ $json.prompt }}"
-            },
-            {
-              "name": "temperature",
-              "value": "=0.2"
-            },
-            {
-              "name": "max_tokens",
-              "value": "=1000"
-            }
-          ]
-        },
-        "options": {}
-      },
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.4,
-      "position": [
-        4368,
-        128
-      ],
-      "id": "eb808e28-916e-4361-ae3a-85f494fc74fa",
-      "name": "HTTP - LLM Article Recs",
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "8gpQNhEjspc3sQui",
-          "name": "KipuLLM"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "dataTableId": {
-          "__rl": true,
-          "value": "UlmKZmk0eECsqKNa",
-          "mode": "list",
-          "cachedResultName": "KipuLLMUsage",
-          "cachedResultUrl": "/projects/4lDgK71Kepm49bQz/datatables/UlmKZmk0eECsqKNa"
-        },
-        "columns": {
-          "mappingMode": "defineBelow",
-          "value": {
-            "prompt_tokens": "={{ $json.usage.prompt_tokens }}",
-            "completion_tokens": "={{ $json.usage.completion_tokens }}",
-            "total_tokens": "={{ $json.usage.total_tokens }}"
-          },
-          "matchingColumns": [],
-          "schema": [
-            {
-              "id": "prompt_tokens",
-              "displayName": "prompt_tokens",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "type": "number",
-              "readOnly": false,
-              "removed": false
-            },
-            {
-              "id": "completion_tokens",
-              "displayName": "completion_tokens",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "type": "number",
-              "readOnly": false,
-              "removed": false
-            },
-            {
-              "id": "total_tokens",
-              "displayName": "total_tokens",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "type": "number",
-              "readOnly": false,
-              "removed": false
-            }
-          ],
-          "attemptToConvertTypes": false,
-          "convertFieldsToString": false
-        },
-        "options": {}
-      },
-      "type": "n8n-nodes-base.dataTable",
-      "typeVersion": 1.1,
-      "position": [
-        4608,
-        320
-      ],
-      "id": "259fce8c-5f71-41a3-98a5-431e86513498",
-      "name": "DataTable - KipuLLMUsage Recs"
-    },
-    {
-      "parameters": {
-        "jsCode": "const data = $getWorkflowStaticData('global');\nif (!data.article_recs) data.article_recs = {};\n\nfor (const item of $input.all()) {\n  let raw = '';\n  const j = item.json;\n\n  if (typeof j === 'string') {\n    raw = j;\n  } else if (Array.isArray(j)) {\n    raw = j[0]?.output_text || '';\n  } else if (j?.output_text) {\n    raw = j.output_text;\n  } else if (typeof j?.body === 'string') {\n    raw = j.body;\n  }\n\n  const cleaned = raw.replace(/```json|```/g, '').trim();\n  try {\n    const parsed = JSON.parse(cleaned);\n    if (parsed.section_feature) {\n      data.article_recs[parsed.section_feature] = parsed;\n    }\n  } catch(e) {}\n}\n\nreturn [{ json: { cached: true } }];\n"
-      },
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        4576,
-        128
-      ],
-      "id": "85f7aa09-054e-4a2a-991c-828508041f61",
-      "name": "Code - Cache Article Rec"
-    },
-    {
-      "parameters": {
         "operation": "executeQuery",
         "query": "SELECT\n  COUNT(*) as total_tickets,\n  COUNT(CASE WHEN status IN ('solved', 'closed') THEN 1 END) as solved_tickets,\n  ROUND(AVG(full_resolution_time_business_minutes)::numeric / 60, 1) as avg_resolution_hours,\n  ROUND(\n    SUM(CASE WHEN sla_breached_flag = true THEN 1 ELSE 0 END)::numeric \n    / NULLIF(COUNT(*), 0) * 100, 1\n  ) as sla_breach_pct,\n  ROUND(\n    SUM(CASE WHEN article_linked_flag = true THEN 1 ELSE 0 END)::numeric \n    / NULLIF(COUNT(*), 0) * 100, 1\n  ) as article_link_pct,\n  ROUND(\n    SUM(CASE WHEN csat_score = 'good' THEN 1 ELSE 0 END)::numeric \n    / NULLIF(SUM(CASE WHEN csat_score IN ('good', 'bad') THEN 1 ELSE 0 END), 0) * 100, 1\n  ) as csat_pct,\n  SUM(CASE WHEN csat_score IN ('good', 'bad') THEN 1 ELSE 0 END) as csat_responses\nFROM support_ticket_metrics_fact\nWHERE (\n  '{{ $('Code - Parse Query Context').first().json.form_name }}' = ''\n  OR form_id = CASE '{{ $('Code - Parse Query Context').first().json.form_name }}'\n    WHEN 'EMR'        THEN 1900001563224\n    WHEN 'Lab'        THEN 32729757998235\n    WHEN 'CRM'        THEN 1260812421569\n    WHEN 'Accounting' THEN 5374649379867\n    ELSE NULL\n  END\n)\nAND (\n  '{{ $('Code - Parse Query Context').first().json.date_from }}' = ''\n  OR ticket_created_at >= '{{ $('Code - Parse Query Context').first().json.date_from }}'\n)\nAND (\n  '{{ $('Code - Parse Query Context').first().json.date_to }}' = ''\n  OR ticket_created_at <= '{{ $('Code - Parse Query Context').first().json.date_to }}'\n);\n",
         "options": {}
@@ -866,8 +194,8 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
       "position": [
-        656,
-        816
+        2208,
+        352
       ],
       "id": "8b9b78fb-33aa-40e6-8d52-18aea2679015",
       "name": "Postgres - Load Metrics Context",
@@ -910,8 +238,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
       "position": [
-        -240,
-        816
+        1312,
+        352
       ],
       "id": "e8946c16-bcb8-4c14-b1ef-0226fdc29558",
       "name": "HTTP - Extract Query Context",
@@ -979,8 +307,8 @@
       "type": "n8n-nodes-base.dataTable",
       "typeVersion": 1.1,
       "position": [
-        -16,
-        976
+        1536,
+        512
       ],
       "id": "21fffccd-ad78-449d-876a-08f92c2d39ec",
       "name": "Kipu LLM Usage - Query"
@@ -992,172 +320,951 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        208,
-        816
+        1760,
+        352
       ],
       "id": "f56c1675-d5a1-4f3f-a184-7f9ff33dd9aa",
       "name": "Code - Parse Query Context"
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { \n  url: 'https://kipuhealth.zendesk.com/api/v2/help_center/articles.json?per_page=100&page=1&include=sections,categories'\n}}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1536,
+        960
+      ],
+      "id": "cb9af08d-98fe-4bc2-9274-29fac0b08c02",
+      "name": "Code - Build Article Fetch URL"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "zendeskApi",
+        "options": {}
+      },
+      "id": "5ccf6b68-d9bf-433d-a4db-1a4ab79a470a",
+      "name": "HTTP - Fetch Articles",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1760,
+        960
+      ],
+      "credentials": {
+        "zendeskApi": {
+          "id": "Nd6nYzUYdeDBS3Gj",
+          "name": "Equinox Zendesk Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const allArticles = [];\nfor (const item of $input.all()) {\n  const articles = item.json.articles || [];\n  allArticles.push(...articles);\n}\n\nconst filtered = allArticles.filter(a => {\n  const categoryName = (a.category?.name || '').toLowerCase();\n  return !categoryName.includes('release note');\n});\n\nconst cleaned = filtered.map(a => {\n  const bodyText = (a.body || '')\n    .replace(/<[^>]*>/g, ' ')\n    .replace(/&nbsp;/g, ' ')\n    .replace(/&amp;/g, '&')\n    .replace(/&lt;/g, '<')\n    .replace(/&gt;/g, '>')\n    .replace(/\\s+/g, ' ')\n    .trim()\n    .slice(0, 8000);\n\n  return {\n    article_id: a.id,\n    title: a.title,\n    body_text: bodyText,\n    section_id: a.section_id,\n    url: `https://kipuhealth.zendesk.com/hc/en-us/articles/${a.id}`,\n    outdated: a.outdated || false,\n    draft: a.draft || false,\n    updated_at: a.updated_at,\n    embed_input: `${a.title}\\n\\n${bodyText}`\n  };\n});\n\nreturn [{ json: {\n  inputs: cleaned.map(a => a.embed_input),\n  articles: cleaned\n}}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2032,
+        960
+      ],
+      "id": "00a5158e-c7e1-47fd-8f80-436626d4309b",
+      "name": "Code - Filter + Clean Articles"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/embeddings",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "input",
+              "value": "={{ $json.inputs }}"
+            },
+            {
+              "name": "model",
+              "value": "text-embedding-3-small"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2288,
+        960
+      ],
+      "id": "dba1f3f7-a9d2-404f-aca5-e06be08fd8b7",
+      "name": "HTTP - OpenAI Embed",
+      "credentials": {
+        "openAiApi": {
+          "id": "E80xkZpQ6Z8o6nB0",
+          "name": "Equinox OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const embeddings = $json.data || [];\nconst articles = $('Code - Filter + Clean Articles').first().json.articles;\n\nreturn embeddings.map((e, i) => {\n  const article = articles[i];\n  if (!article) return null;\n  return {\n    json: {\n      article_id: article.article_id,\n      title: (article.title || '').replace(/'/g, \"''\"),\n      body_text: (article.body_text || '').replace(/'/g, \"''\"),\n      section_id: article.section_id || null,\n      url: article.url,\n      outdated: article.outdated || false,\n      draft: article.draft || false,\n      updated_at: article.updated_at,\n      embedding: JSON.stringify(e.embedding),\n      embedded_at: new Date().toISOString()\n    }\n  };\n}).filter(Boolean);\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2592,
+        960
+      ],
+      "id": "994dbdd9-16ad-49c2-a515-75af4f011832",
+      "name": "Code - Prepare Upsert"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO kb_article_embeddings (\n  article_id, title, body_text, section_id, url,\n  outdated, draft, embedding, embedded_at, updated_at, source\n) VALUES (\n  {{ $json.article_id }},\n  '{{ $json.title.replace(/'/g, \"''\") }}',\n  '{{ $json.body_text.replace(/'/g, \"''\") }}',\n  {{ $json.section_id }},\n  '{{ $json.url }}',\n  {{ $json.outdated }},\n  {{ $json.draft }},\n  '{{ $json.embedding }}'::vector,\n  '{{ $json.embedded_at }}',\n  '{{ $json.updated_at }}',\n  'emr'\n)\nON CONFLICT (article_id, source) DO UPDATE SET\n  title = EXCLUDED.title,\n  body_text = EXCLUDED.body_text,\n  embedding = EXCLUDED.embedding,\n  outdated = EXCLUDED.outdated,\n  embedded_at = EXCLUDED.embedded_at,\n  updated_at = EXCLUDED.updated_at;\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2832,
+        960
+      ],
+      "id": "10ba3a6e-8fc3-4af1-b943-8cd57541333e",
+      "name": "Postgres - Upsert Embedding",
+      "credentials": {
+        "postgres": {
+          "id": "XjgfokqBkBtAIKkz",
+          "name": "Equinox Supabase - Zendesk Ticket Metrics"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const httpResult = $('HTTP - Fetch Articles').first().json;\n\nreturn {\n  json: {\n    next_page: httpResult.next_page || null,\n    has_more: !!httpResult.next_page\n  }\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3072,
+        960
+      ],
+      "id": "1e7bd8e1-c4b9-4c2a-a346-8c87bf78302e",
+      "name": "Code - Check Next Page"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "a43b907d-b590-41b9-abbb-f3cb91a3d74d",
+              "leftValue": "={{ $json.has_more }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        3312,
+        960
+      ],
+      "id": "618851f5-ef00-4d85-91a8-22830bde1e73",
+      "name": "IF - More Pages"
+    },
+    {
+      "parameters": {
+        "amount": 4
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        3584,
+        944
+      ],
+      "id": "2728504d-7742-4092-a75d-e7d06ab66f07",
+      "name": "Wait",
+      "webhookId": "926e526a-13c2-4384-879a-eb914603779e"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "return {\n  json: {\n    url: $json.next_page\n  }\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3792,
+        944
+      ],
+      "id": "3211b71e-6eef-40b8-a7fa-e699e29288d9",
+      "name": "Code - Next Page URL"
+    },
+    {
+      "parameters": {
+        "content": "KB Embed Flow for EMR",
+        "height": 80,
+        "width": 160
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1104,
+        672
+      ],
+      "id": "9d6ca29b-8ce7-4306-a43f-95b050892de6",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "Single Ticket Search",
+        "height": 80,
+        "width": 160
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1056,
+        1504
+      ],
+      "id": "9926e770-f117-46a0-abf6-ba117d5e689c",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "kb-ticket-lookup",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        1072,
+        1648
+      ],
+      "id": "a0ba87f9-0df9-4592-b7a1-dd51bd6b8d7c",
+      "name": "Webhook - Ticket Lookup",
+      "webhookId": "ae7180b6-d847-4e65-ac7c-2b348906d90e"
+    },
+    {
+      "parameters": {
+        "url": "=https://kipuhealth.zendesk.com/api/v2/tickets/{{ $json.body.ticket_id }}.json?include=comment_count\n",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "zendeskApi",
+        "options": {}
+      },
+      "id": "3bc18adc-c752-4b27-8544-981dba9b8fb5",
+      "name": "HTTP - Fetch Ticket",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1296,
+        1648
+      ],
+      "credentials": {
+        "zendeskApi": {
+          "id": "Nd6nYzUYdeDBS3Gj",
+          "name": "Equinox Zendesk Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const ticket = $('HTTP - Fetch Ticket').first().json.ticket;\nconst comments = $('HTTP - Fetch Ticket Comments').first().json.comments || [];\n\nif (!ticket) throw new Error('Ticket not found');\n\nconst subject = ticket.subject || '';\n\n// Get first 3 public comments (actual conversation, not just description)\nconst publicComments = comments\n  .filter(c => c.public)\n  .slice(0, 3)\n  .map(c => c.body || '')\n  .join('\\n\\n---\\n\\n')\n  .slice(0, 2000);\n\nconst userPrompt = `Subject: ${subject}\\n\\nConversation:\\n${publicComments || 'No comments available'}`;\n\nreturn {\n  json: {\n    ticket_id: ticket.id,\n    status: ticket.status,\n    form_id: ticket.ticket_form_id,\n    system_prompt: `You are a support ticket analyzer. Extract the core support question from the ticket below. Remove all personally identifiable information (names, emails, phone numbers, account numbers, dates of birth, facility names). Return only a 2-3 sentence plain English summary of the technical or functional issue being reported. No PHI, no metadata, just the question.`,\n    user_prompt: userPrompt\n  }\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1728,
+        1648
+      ],
+      "id": "5a7014b9-2b76-479f-ab8b-dfacebf6078d",
+      "name": "Code - Prepare Ticket Text"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/embeddings",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "input",
+              "value": "={{ $json.embed_input }}"
+            },
+            {
+              "name": "model",
+              "value": "text-embedding-3-small"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2480,
+        1648
+      ],
+      "id": "dd5435b1-ff91-4408-8b00-a7b66b8eeedf",
+      "name": "HTTP - OpenAI Embed Ticket",
+      "credentials": {
+        "openAiApi": {
+          "id": "E80xkZpQ6Z8o6nB0",
+          "name": "Equinox OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT \n  article_id,\n  title,\n  url,\n  outdated,\n  ROUND((1 - (embedding <=> ('[' || '{{ $json.data[0].embedding }}' || ']')::vector))::numeric, 3) as similarity\nFROM kb_article_embeddings\nWHERE outdated = false\nORDER BY embedding <=> ('[' || '{{ $json.data[0].embedding }}' || ']')::vector\nLIMIT 5;\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2720,
+        1648
+      ],
+      "id": "cfe9c84f-706b-4574-b311-6304f035f668",
+      "name": "Postgres - Vector Search",
+      "credentials": {
+        "postgres": {
+          "id": "XjgfokqBkBtAIKkz",
+          "name": "Equinox Supabase - Zendesk Ticket Metrics"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://automations.kipuqa.com/webhook/d8636958-7ad8-4888-a0cf-619308193a2c",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "system_prompt",
+              "value": "={{ $json.system_prompt }}"
+            },
+            {
+              "name": "user_prompt",
+              "value": "={{ $json.user_prompt }}"
+            },
+            {
+              "name": "temperature",
+              "value": "=0.1"
+            },
+            {
+              "name": "max_tokens",
+              "value": "=200"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1920,
+        1648
+      ],
+      "id": "b92d7f67-1940-486b-8d08-b53f2267d08d",
+      "name": "HTTP - Kipu LLM Summarize",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "8gpQNhEjspc3sQui",
+          "name": "KipuLLM"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "dataTableId": {
+          "__rl": true,
+          "value": "UlmKZmk0eECsqKNa",
+          "mode": "list",
+          "cachedResultName": "KipuLLMUsage",
+          "cachedResultUrl": "/projects/4lDgK71Kepm49bQz/datatables/UlmKZmk0eECsqKNa"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "prompt_tokens": "={{ $json.usage.prompt_tokens }}",
+            "completion_tokens": "={{ $json.usage.completion_tokens }}",
+            "total_tokens": "={{ $json.usage.total_tokens }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "prompt_tokens",
+              "displayName": "prompt_tokens",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "completion_tokens",
+              "displayName": "completion_tokens",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "total_tokens",
+              "displayName": "total_tokens",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        2208,
+        1888
+      ],
+      "id": "cfa9c778-02a5-42a6-91af-9eac227d88fc",
+      "name": "Kipu LLM Usage LLM - Summary"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const summary = $json.output_text || $json.text || $json.response || '';\nconst ticket = $('Code - Prepare Ticket Text').item.json;\n\nreturn {\n  json: {\n    ticket_id: ticket.ticket_id,\n    status: ticket.status,\n    form_id: ticket.form_id,\n    summary: summary,\n    embed_input: summary\n  }\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2224,
+        1648
+      ],
+      "id": "b74d0069-1399-4c24-aead-4c32e77723f6",
+      "name": "Code - Extract Summary"
+    },
+    {
+      "parameters": {
+        "jsCode": "const results = $input.all().map(i => i.json);\nconst ticket = $('Code - Prepare Ticket Text').first().json;\nconst summary = $('Code - Extract Summary').first().json.summary;\n\nconst MIN_SIMILARITY = 0.5;\nconst filtered = results.filter(r => r.similarity >= MIN_SIMILARITY);\n\nconst bestMatch = filtered.length > 0 ? filtered[0] : null;\n\nlet coverage;\nif (bestMatch && bestMatch.similarity >= 0.75) {\n  coverage = 'covered';\n} else if (bestMatch && bestMatch.similarity >= 0.60) {\n  coverage = 'partial';\n} else {\n  coverage = 'none';\n}\n\nreturn [{\n  json: {\n    ticket_id: ticket.ticket_id,\n    status: ticket.status,\n    issue_summary: summary,\n    coverage: coverage,\n    coverage_label: coverage === 'covered'\n      ? 'A relevant article exists for this topic'\n      : coverage === 'partial'\n      ? 'Partial match — review these articles'\n      : 'No article found for this topic',\n    articles: filtered.map(r => ({\n      article_id: r.article_id,\n      title: r.title,\n      url: r.url,\n      outdated: r.outdated,\n      similarity: r.similarity,\n      match_quality: r.similarity >= 0.75 ? 'strong' : 'possible'\n    }))\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2928,
+        1648
+      ],
+      "id": "73c6e55f-a8c0-420c-9716-c57b0c6cd207",
+      "name": "Code - Format Response"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        3136,
+        1648
+      ],
+      "id": "4fd55f48-0536-40cc-8b9d-62e8c8da10c1",
+      "name": "Respond to Webhook - Ticket Lookup"
+    },
+    {
+      "parameters": {
+        "url": "=https://kipuhealth.zendesk.com/api/v2/tickets/{{ $('HTTP - Fetch Ticket').first().json.ticket.id }}/comments.json",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "zendeskApi",
+        "options": {}
+      },
+      "id": "48fbe17a-ab41-4b4a-9b26-3d8b4b943a72",
+      "name": "HTTP - Fetch Ticket Comments",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1504,
+        1648
+      ],
+      "credentials": {
+        "zendeskApi": {
+          "id": "Nd6nYzUYdeDBS3Gj",
+          "name": "Equinox Zendesk Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {}
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        1120,
+        960
+      ],
+      "id": "5c99d777-2583-4d04-bd84-a4cb7336d270",
+      "name": "Refresh Article Vectorizing"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO kb_embed_log (articles_embedded, status)\nSELECT COUNT(*), 'success' FROM kb_article_embeddings;\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        3600,
+        1184
+      ],
+      "id": "2278ea6f-47e5-4468-9092-690a1815acde",
+      "name": "Postgres - Log Run",
+      "credentials": {
+        "postgres": {
+          "id": "XjgfokqBkBtAIKkz",
+          "name": "Equinox Supabase - Zendesk Ticket Metrics"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "kb-embed-sync",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        1104,
+        800
+      ],
+      "id": "9a2e3b7d-3425-417b-a211-33a8cd2cdda4",
+      "name": "Webhook - KB Embed Sync",
+      "webhookId": "3b712399-5624-431c-b13a-833c156e5307"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        3808,
+        1184
+      ],
+      "id": "cc3b3f0a-e335-4355-b689-b9eee93e2aeb",
+      "name": "Respond to Webhook - KB Embed Sync"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "TRUNCATE TABLE kb_article_embeddings;\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1328,
+        960
+      ],
+      "id": "3b65e46d-6d3f-4d79-827d-cd1154659082",
+      "name": "Postgres - Clear Table",
+      "credentials": {
+        "postgres": {
+          "id": "XjgfokqBkBtAIKkz",
+          "name": "Equinox Supabase - Zendesk Ticket Metrics"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "kb-coverage-scan",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        1088,
+        2112
+      ],
+      "id": "015cffe3-3317-43cc-bfdd-1d8ad445be19",
+      "name": "Webhook - KB Coverage Scan",
+      "webhookId": "ae7180b6-d847-4e65-ac7c-2b348906d90e"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT ticket_id, article_linked_flag\nFROM support_ticket_metrics_fact\nWHERE form_id = {{ $json.body.form_id }}\n  AND ticket_created_at >= '{{ $json.body.date_from }}'\n  AND ticket_created_at < '{{ $json.body.date_to }}'\nORDER BY ticket_id;\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1344,
+        2112
+      ],
+      "id": "3425b070-70dc-4e05-be17-d0cdcfd147bb",
+      "name": "Postgres - Fetch Tickets",
+      "credentials": {
+        "postgres": {
+          "id": "XjgfokqBkBtAIKkz",
+          "name": "Equinox Supabase - Zendesk Ticket Metrics"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "=https://kipuhealth.zendesk.com/api/v2/tickets/{{ $('Postgres - Fetch Tickets').item.json.ticket_id }}/comments.json\n",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "zendeskApi",
+        "options": {}
+      },
+      "id": "98d67a9d-e677-47fe-8207-8bf04d9fde41",
+      "name": "HTTP - Fetch Ticket Comments KBGap",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1792,
+        2112
+      ],
+      "credentials": {
+        "zendeskApi": {
+          "id": "Nd6nYzUYdeDBS3Gj",
+          "name": "Equinox Zendesk Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const ticketId = $('Postgres - Fetch Tickets').item.json.ticket_id;\nconst comments = $('HTTP - Fetch Ticket Comments KBGap').item.json.comments || [];\n\nconst publicComments = comments\n  .filter(c => c.public)\n  .slice(0, 3)\n  .map(c => c.body || '')\n  .join('\\n\\n---\\n\\n')\n  .slice(0, 2000);\n\nreturn {\n  json: {\n    ticket_id: ticketId,\n    article_linked_flag: $('Postgres - Fetch Tickets').item.json.article_linked_flag,\n    status: null,\n    form_id: 1260812421569,\n    system_prompt: `You are a support ticket analyzer. Extract the core support question from the ticket below. Remove all personally identifiable information (names, emails, phone numbers, account numbers, dates of birth, facility names). Return only a 2-3 sentence plain English summary of the technical or functional issue being reported. No PHI, no metadata, just the question.`,\n    user_prompt: `Conversation:\\n${publicComments || 'No comments available'}`\n  }\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2000,
+        2112
+      ],
+      "id": "469584e4-8312-4f8f-a793-22456a96ae90",
+      "name": "Code - Prepare Ticket Text1"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/embeddings",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "input",
+              "value": "={{ $json.embed_input }}"
+            },
+            {
+              "name": "model",
+              "value": "text-embedding-3-small"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2752,
+        2112
+      ],
+      "id": "172748eb-da56-4e04-ab17-f56af6c2c20a",
+      "name": "HTTP - OpenAI Embed Ticket1",
+      "credentials": {
+        "openAiApi": {
+          "id": "E80xkZpQ6Z8o6nB0",
+          "name": "Equinox OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT \n  json_agg(\n    json_build_object(\n      'article_id', article_id,\n      'title', title,\n      'url', url,\n      'outdated', outdated,\n      'similarity', ROUND((1 - (embedding <=> ('[' || '{{ $json.data[0].embedding }}' || ']')::vector))::numeric, 3)\n    ) ORDER BY embedding <=> ('[' || '{{ $json.data[0].embedding }}' || ']')::vector\n  ) as articles\nFROM (\n  SELECT article_id, title, url, outdated, embedding\n  FROM kb_article_embeddings\n  WHERE outdated = false\n  ORDER BY embedding <=> ('[' || '{{ $json.data[0].embedding }}' || ']')::vector\n  LIMIT 5\n) sub;\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2992,
+        2112
+      ],
+      "id": "515b78b5-4260-4e47-a91c-5efdf71bcee8",
+      "name": "Postgres - Vector Search1",
+      "credentials": {
+        "postgres": {
+          "id": "XjgfokqBkBtAIKkz",
+          "name": "Equinox Supabase - Zendesk Ticket Metrics"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://automations.kipuqa.com/webhook/d8636958-7ad8-4888-a0cf-619308193a2c",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "system_prompt",
+              "value": "={{ $json.system_prompt }}"
+            },
+            {
+              "name": "user_prompt",
+              "value": "={{ $json.user_prompt }}"
+            },
+            {
+              "name": "temperature",
+              "value": "=0.1"
+            },
+            {
+              "name": "max_tokens",
+              "value": "=200"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2192,
+        2112
+      ],
+      "id": "9773e713-e1f6-4891-a98f-3d87d26f1234",
+      "name": "HTTP - Kipu LLM Summarize1",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "8gpQNhEjspc3sQui",
+          "name": "KipuLLM"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "dataTableId": {
+          "__rl": true,
+          "value": "UlmKZmk0eECsqKNa",
+          "mode": "list",
+          "cachedResultName": "KipuLLMUsage",
+          "cachedResultUrl": "/projects/4lDgK71Kepm49bQz/datatables/UlmKZmk0eECsqKNa"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "prompt_tokens": "={{ $json.usage.prompt_tokens }}",
+            "completion_tokens": "={{ $json.usage.completion_tokens }}",
+            "total_tokens": "={{ $json.usage.total_tokens }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "prompt_tokens",
+              "displayName": "prompt_tokens",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "completion_tokens",
+              "displayName": "completion_tokens",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "total_tokens",
+              "displayName": "total_tokens",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        2480,
+        2352
+      ],
+      "id": "9a987215-12f3-4f0d-aa37-2372668d52d4",
+      "name": "Kipu LLM Usage LLM - Summary1"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const summary = $json.output_text || $json.text || $json.response || '';\nconst ticket = $('Code - Prepare Ticket Text1').item.json;\n\nreturn {\n  json: {\n    ticket_id: ticket.ticket_id,\n    status: ticket.status,\n    form_id: ticket.form_id,\n    summary: summary,\n    embed_input: summary\n  }\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2496,
+        2112
+      ],
+      "id": "2c682dc6-6f2f-4d56-b2c5-de26665088b1",
+      "name": "Code - Extract Summary1"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO kb_coverage_results (ticket_id, coverage, top_similarity, top_article_id, top_article_title, summary)\nVALUES (\n  {{ $json.ticket_id }},\n  '{{ $json.coverage }}',\n  {{ $json.articles.length > 0 ? $json.articles[0].similarity : 'NULL' }},\n  {{ $json.articles.length > 0 ? $json.articles[0].article_id : 'NULL' }},\n  '{{ $json.articles.length > 0 ? $json.articles[0].title.replace(/'/g, \"''\") : '' }}',\n  '{{ $json.issue_summary ? $json.issue_summary.replace(/'/g, \"''\") : '' }}'\n)\nON CONFLICT (ticket_id) DO UPDATE SET\n  coverage = EXCLUDED.coverage,\n  top_similarity = EXCLUDED.top_similarity,\n  top_article_id = EXCLUDED.top_article_id,\n  top_article_title = EXCLUDED.top_article_title,\n  summary = EXCLUDED.summary,\n  scanned_at = NOW();\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        3440,
+        2112
+      ],
+      "id": "aeafb9e5-d023-4902-9c51-7ed83d3d3b04",
+      "name": "Postgres - Upsert Result",
+      "credentials": {
+        "postgres": {
+          "id": "XjgfokqBkBtAIKkz",
+          "name": "Equinox Supabase - Zendesk Ticket Metrics"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const ticket = $('Code - Prepare Ticket Text1').item.json;\nconst summary = $('Code - Extract Summary1').item.json.summary;\nconst articles = $json.articles || [];\n\nconst MIN_SIMILARITY = 0.5;\nconst filtered = articles.filter(r => r.similarity >= MIN_SIMILARITY);\nconst bestMatch = filtered.length > 0 ? filtered[0] : null;\n\nlet coverage;\nif (bestMatch && bestMatch.similarity >= 0.75) {\n  coverage = 'covered';\n} else if (bestMatch && bestMatch.similarity >= 0.60) {\n  coverage = 'partial';\n} else {\n  coverage = 'none';\n}\n\nreturn {\n  json: {\n    ticket_id: ticket.ticket_id,\n    issue_summary: summary,\n    coverage: coverage,\n    articles: filtered\n  }\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3200,
+        2112
+      ],
+      "id": "0fe1a41f-5317-4c7c-ac51-e887394b452a",
+      "name": "Code - Format Response1"
+    },
+    {
+      "parameters": {
+        "maxItems": 10
+      },
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [
+        1568,
+        2112
+      ],
+      "id": "fa30a6db-0a89-45e3-bcfb-8f97d26842f4",
+      "name": "Limit"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        3648,
+        2112
+      ],
+      "id": "17255a41-ac71-4d54-b0d3-4542cc6a7270",
+      "name": "Respond to Webhook - Batch KB Coverage"
+    },
+    {
+      "parameters": {
+        "content": "Multi Ticket Search",
+        "height": 80,
+        "width": 160
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1072,
+        1968
+      ],
+      "id": "7225dcbe-386a-4f5e-a5f3-b95344e5f517",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "content": "Supabase data chat flow",
+        "height": 80,
+        "width": 160
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1072,
+        224
+      ],
+      "id": "6a3a0036-9905-439d-af8b-b78799e241f1",
+      "name": "Sticky Note3"
     }
   ],
   "pinData": {},
   "connections": {
-    "Webhook - Gap Scan": {
-      "main": [
-        [
-          {
-            "node": "Postgres - Get Form Config",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Code - Prepare Scan": {
-      "main": [
-        [
-          {
-            "node": "HTTP - Search Tickets",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "HTTP - Search Tickets": {
-      "main": [
-        [
-          {
-            "node": "Code - Accumulate Ticket Data",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Code - Accumulate Ticket Data": {
-      "main": [
-        [
-          {
-            "node": "IF - More Ticket Pages",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "IF - More Ticket Pages": {
-      "main": [
-        [
-          {
-            "node": "Wait - Ticket Page",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Code - Start KB Fetch",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Wait - Ticket Page": {
-      "main": [
-        [
-          {
-            "node": "Code - Next Ticket URL",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Code - Next Ticket URL": {
-      "main": [
-        [
-          {
-            "node": "HTTP - Search Tickets",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Code - Start KB Fetch": {
-      "main": [
-        [
-          {
-            "node": "HTTP - Fetch KB Articles",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "HTTP - Fetch KB Articles": {
-      "main": [
-        [
-          {
-            "node": "Code - Accumulate KB Articles",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Code - Accumulate KB Articles": {
-      "main": [
-        [
-          {
-            "node": "IF - More KB Pages",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "IF - More KB Pages": {
-      "main": [
-        [
-          {
-            "node": "Code - Next KB URL",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Code - Build Coverage Map",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Code - Next KB URL": {
-      "main": [
-        [
-          {
-            "node": "HTTP - Fetch KB Articles",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Code - Build Coverage Map": {
-      "main": [
-        [
-          {
-            "node": "Code - Build Section Prompt",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "Webhook - Chat": {
       "main": [
         [
@@ -1212,180 +1319,11 @@
         ]
       ]
     },
-    "Code - Parse LLM Prompt": {
-      "main": [
-        [
-          {
-            "node": "If",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "HTTP - Kipu LLM Gap Analysis": {
-      "main": [
-        [
-          {
-            "node": "Code - Parse LLM Prompt",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "DataTable - KipuLLMUsage Gap",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "DataTable - KipuLLMUsage Gap": {
-      "main": [
-        []
-      ]
-    },
-    "If": {
-      "main": [
-        [
-          {
-            "node": "Code - Assemble Final Output",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Code - Build Section Prompt": {
-      "main": [
-        [
-          {
-            "node": "HTTP - Kipu LLM Gap Analysis",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Postgres - Get Form Config": {
-      "main": [
-        [
-          {
-            "node": "HTTP - Fetch Field Options",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "HTTP - Fetch Field Options": {
-      "main": [
-        [
-          {
-            "node": "Code - Build Section Map",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Code - Build Section Map": {
-      "main": [
-        [
-          {
-            "node": "Code - Prepare Scan",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Postgres - Insert Scan": {
-      "main": [
-        [
-          {
-            "node": "Code - Filter Actionable Gaps",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Postgres - Insert Sections": {
-      "main": [
-        [
-          {
-            "node": "Respond - Gap Scan",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "Postgres - Load Scan Context": {
       "main": [
         [
           {
             "node": "Postgres - Load Metrics Context",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Code - Filter Actionable Gaps": {
-      "main": [
-        [
-          {
-            "node": "HTTP - LLM Article Recs",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Code - Enrich & Prepare Inserts": {
-      "main": [
-        [
-          {
-            "node": "Postgres - Insert Sections",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Code - Assemble Final Output": {
-      "main": [
-        [
-          {
-            "node": "Postgres - Insert Scan",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "HTTP - LLM Article Recs": {
-      "main": [
-        [
-          {
-            "node": "DataTable - KipuLLMUsage Recs",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "Code - Cache Article Rec",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Code - Cache Article Rec": {
-      "main": [
-        [
-          {
-            "node": "Code - Enrich & Prepare Inserts",
             "type": "main",
             "index": 0
           }
@@ -1434,6 +1372,397 @@
           }
         ]
       ]
+    },
+    "Code - Build Article Fetch URL": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Fetch Articles",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Fetch Articles": {
+      "main": [
+        [
+          {
+            "node": "Code - Filter + Clean Articles",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Filter + Clean Articles": {
+      "main": [
+        [
+          {
+            "node": "HTTP - OpenAI Embed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - OpenAI Embed": {
+      "main": [
+        [
+          {
+            "node": "Code - Prepare Upsert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Prepare Upsert": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Upsert Embedding",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Check Next Page": {
+      "main": [
+        [
+          {
+            "node": "IF - More Pages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - More Pages": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Postgres - Log Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Code - Next Page URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Next Page URL": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Fetch Articles",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Upsert Embedding": {
+      "main": [
+        [
+          {
+            "node": "Code - Check Next Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook - Ticket Lookup": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Fetch Ticket",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Fetch Ticket": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Fetch Ticket Comments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Prepare Ticket Text": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Kipu LLM Summarize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - OpenAI Embed Ticket": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Vector Search",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Kipu LLM Summarize": {
+      "main": [
+        [
+          {
+            "node": "Kipu LLM Usage LLM - Summary",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Code - Extract Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Extract Summary": {
+      "main": [
+        [
+          {
+            "node": "HTTP - OpenAI Embed Ticket",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Vector Search": {
+      "main": [
+        [
+          {
+            "node": "Code - Format Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Format Response": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook - Ticket Lookup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Fetch Ticket Comments": {
+      "main": [
+        [
+          {
+            "node": "Code - Prepare Ticket Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Refresh Article Vectorizing": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Clear Table",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook - KB Embed Sync": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Clear Table",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Log Run": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook - KB Embed Sync",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Clear Table": {
+      "main": [
+        [
+          {
+            "node": "Code - Build Article Fetch URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook - KB Coverage Scan": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Fetch Tickets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Fetch Tickets": {
+      "main": [
+        [
+          {
+            "node": "Limit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Prepare Ticket Text1": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Kipu LLM Summarize1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - OpenAI Embed Ticket1": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Vector Search1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Kipu LLM Summarize1": {
+      "main": [
+        [
+          {
+            "node": "Kipu LLM Usage LLM - Summary1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Code - Extract Summary1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Extract Summary1": {
+      "main": [
+        [
+          {
+            "node": "HTTP - OpenAI Embed Ticket1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Fetch Ticket Comments KBGap": {
+      "main": [
+        [
+          {
+            "node": "Code - Prepare Ticket Text1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Vector Search1": {
+      "main": [
+        [
+          {
+            "node": "Code - Format Response1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Format Response1": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Upsert Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Limit": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Fetch Ticket Comments KBGap",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Upsert Result": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook - Batch KB Coverage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "active": true,
@@ -1442,7 +1771,7 @@
     "binaryMode": "separate",
     "availableInMCP": false
   },
-  "versionId": "4086502a-87e8-4f7f-bd0e-2f0f4cedaf1a",
+  "versionId": "caff3461-41d0-415d-8433-2fe9ea752852",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "52593113cc94089cd75ae3f96772feead566141362fb1a394622a12d4e4e1f80"
