@@ -486,7 +486,7 @@
     },
     {
       "parameters": {
-        "url": "=https://kipuhealth.zendesk.com/api/v2/ticket_fields/32729688213531.json",
+        "url": "=https://kipuhealth.zendesk.com/api/v2/help_center/articles.json?per_page=3",
         "authentication": "predefinedCredentialType",
         "nodeCredentialType": "zendeskApi",
         "options": {}
@@ -556,7 +556,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const fields = $json.ticket_fields || [];\nreturn [{\n  json: {\n    fields: fields.map(f => ({\n      id: f.id,\n      title: f.title,\n      type: f.type,\n      key: f.key\n    }))\n  }\n}];\n"
+        "jsCode": "const articles = $json.articles || [];\nconst now = new Date();\n\nconst ageBuckets = { last_90d: 0, last_year: 0, one_to_two_years: 0, over_two_years: 0 };\nconst labels = {};\nconst sections = {};\nlet outdated = 0, draft = 0;\n\nfor (const a of articles) {\n  const days = (now - new Date(a.updated_at)) / (1000 * 60 * 60 * 24);\n  if (days <= 90) ageBuckets.last_90d++;\n  else if (days <= 365) ageBuckets.last_year++;\n  else if (days <= 730) ageBuckets.one_to_two_years++;\n  else ageBuckets.over_two_years++;\n\n  if (a.outdated) outdated++;\n  if (a.draft) draft++;\n\n  for (const lbl of (a.label_names || [])) {\n    labels[lbl] = (labels[lbl] || 0) + 1;\n  }\n\n  const sec = a.section_id;\n  sections[sec] = (sections[sec] || 0) + 1;\n}\n\n// Oldest and newest\nconst sorted = [...articles].sort((a, b) => new Date(a.updated_at) - new Date(b.updated_at));\n\nreturn [{ json: {\n  page_count: articles.length,\n  total_pages: Math.ceil($json.count / 100),\n  total_articles: $json.count,\n  age_breakdown: ageBuckets,\n  outdated,\n  draft,\n  top_labels: Object.entries(labels).sort((a,b) => b[1]-a[1]).slice(0, 20),\n  oldest_5: sorted.slice(0, 5).map(a => ({ id: a.id, title: a.title, updated: a.updated_at.slice(0,10), outdated: a.outdated })),\n  newest_5: sorted.slice(-5).map(a => ({ id: a.id, title: a.title, updated: a.updated_at.slice(0,10), outdated: a.outdated }))\n}}];\n"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -947,7 +947,7 @@
     "binaryMode": "separate",
     "availableInMCP": false
   },
-  "versionId": "a02543fa-f6df-4f9a-ba33-ad8592ca0e6a",
+  "versionId": "7a1fc195-1512-4a10-9e53-4245f70e901a",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "52593113cc94089cd75ae3f96772feead566141362fb1a394622a12d4e4e1f80"
